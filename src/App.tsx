@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { Sidebar } from './components/layout/Sidebar';
 import { Header } from './components/layout/Header';
 import { MessageBubble } from './components/chat/MessageBubble';
@@ -6,7 +6,8 @@ import { InputArea } from './components/chat/InputArea';
 import { ThinkingAnimation } from './components/chat/ThinkingAnimation';
 import { TypingAnimation } from './components/chat/TypingAnimation';
 import { Message, Model, AVAILABLE_MODELS } from './types';
-import { Loader2, Ban, LogIn, UserPlus, Sparkles, Mail } from 'lucide-react';
+import { Loader2, Ban, LogIn, UserPlus, Sparkles, Mail, ArrowDown } from 'lucide-react';
+import { AnimatePresence, motion } from 'motion/react';
 import { useAuth } from './contexts/AuthContext';
 import { createChat, addMessageToChat, getChatMessages, updateChatTitle } from './lib/firebase/firestore';
 import { WnelLogo } from './components/common/WnelLogo';
@@ -30,14 +31,59 @@ export default function App() {
   const [isAuthOpen, setIsAuthOpen] = useState(false);
   const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
   
+  // Intelligent Scroll State
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const isAtBottomRef = useRef<boolean>(true);
+  const [showScrollBottomButton, setShowScrollBottomButton] = useState(false);
+  const [hasNewUnreadMessages, setHasNewUnreadMessages] = useState(false);
 
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  };
+  // Scroll to bottom helper
+  const scrollToBottom = useCallback((behavior: ScrollBehavior = 'smooth') => {
+    if (scrollContainerRef.current) {
+      scrollContainerRef.current.scrollTo({
+        top: scrollContainerRef.current.scrollHeight,
+        behavior
+      });
+      isAtBottomRef.current = true;
+      setShowScrollBottomButton(false);
+      setHasNewUnreadMessages(false);
+    }
+  }, []);
 
+  // Handle scroll events in messages container
+  const handleScroll = useCallback(() => {
+    const container = scrollContainerRef.current;
+    if (!container) return;
+
+    const { scrollTop, scrollHeight, clientHeight } = container;
+    // Distance from bottom in px
+    const distanceFromBottom = scrollHeight - scrollTop - clientHeight;
+    const isNearBottom = distanceFromBottom <= 120;
+
+    isAtBottomRef.current = isNearBottom;
+
+    if (isNearBottom) {
+      setShowScrollBottomButton(false);
+      setHasNewUnreadMessages(false);
+    } else {
+      setShowScrollBottomButton(true);
+    }
+  }, []);
+
+  // Keep scroll at bottom on new updates ONLY IF user is already at bottom
   useEffect(() => {
-    scrollToBottom();
+    if (isAtBottomRef.current) {
+      if (scrollContainerRef.current) {
+        // Instant follow without jittering during streaming
+        scrollContainerRef.current.scrollTop = scrollContainerRef.current.scrollHeight;
+      }
+    } else {
+      // User is scrolled up reading previous messages
+      if (messages.length > 0) {
+        setHasNewUnreadMessages(true);
+      }
+    }
   }, [messages, isLoading]);
 
   // Support URL hash #admin
@@ -76,12 +122,14 @@ export default function App() {
   const handleNewChat = () => {
     setCurrentChatId(null);
     setMessages([]);
+    isAtBottomRef.current = true;
   };
 
   const handleSelectChat = async (chatId: string) => {
     if (currentChatId === chatId) return;
     setCurrentChatId(chatId);
     setIsChatLoading(true);
+    isAtBottomRef.current = true;
     try {
       const dbMessages = await getChatMessages(chatId);
       setMessages(dbMessages.map(m => ({
@@ -89,6 +137,7 @@ export default function App() {
         role: m.role,
         content: m.content
       })));
+      setTimeout(() => scrollToBottom('auto'), 50);
     } catch (error) {
       console.error('Error loading messages:', error);
     } finally {
@@ -106,6 +155,8 @@ export default function App() {
     const newMessages = [...messages, userMessage];
     setMessages(newMessages);
     setIsLoading(true);
+    isAtBottomRef.current = true;
+    setTimeout(() => scrollToBottom('smooth'), 20);
 
     try {
       let isNewChat = false;
@@ -294,7 +345,11 @@ export default function App() {
           </div>
         )}
 
-        <div className="flex-1 overflow-y-auto scrollbar-thin scrollbar-thumb-white/10 pt-4 pb-32">
+        <div 
+          ref={scrollContainerRef}
+          onScroll={handleScroll}
+          className="flex-1 overflow-y-auto scrollbar-thin scrollbar-thumb-white/10 pt-4 pb-36 relative scroll-smooth"
+        >
           <div className="max-w-4xl mx-auto px-4 w-full flex flex-col gap-6">
             {!user ? (
               <div className="flex flex-col items-center justify-center min-h-[65vh] text-center px-4 py-8 opacity-0 animate-[fadeIn_0.6s_ease-out_forwards]">
@@ -374,6 +429,32 @@ export default function App() {
             <div ref={messagesEndRef} className="h-4" />
           </div>
         </div>
+
+        {/* Floating "Yeni mesajlar ↓" / Scroll to Bottom Indicator */}
+        <AnimatePresence>
+          {showScrollBottomButton && messages.length > 0 && (
+            <motion.div
+              initial={{ opacity: 0, y: 12, scale: 0.9 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 12, scale: 0.9 }}
+              transition={{ duration: 0.2 }}
+              className="absolute bottom-28 md:bottom-24 left-1/2 -translate-x-1/2 z-20 pointer-events-auto"
+            >
+              <button
+                onClick={() => scrollToBottom('smooth')}
+                className={`flex items-center gap-2 px-3.5 py-1.5 rounded-full text-xs sm:text-sm font-medium shadow-2xl transition-all border backdrop-blur-md cursor-pointer active:scale-95 ${
+                  hasNewUnreadMessages 
+                    ? 'bg-blue-600 text-white border-blue-400/40 shadow-blue-600/30 ring-2 ring-blue-500/20' 
+                    : 'bg-[#141416]/90 hover:bg-[#1f1f23] text-zinc-300 hover:text-white border-white/10 shadow-black/60'
+                }`}
+                title="Aşağı kaydır"
+              >
+                <span>{hasNewUnreadMessages ? 'Yeni mesajlar' : 'Aşağı kaydır'}</span>
+                <ArrowDown className={`w-3.5 h-3.5 ${hasNewUnreadMessages ? 'animate-bounce text-white' : 'text-zinc-400'}`} />
+              </button>
+            </motion.div>
+          )}
+        </AnimatePresence>
 
         {/* Bottom Bar: Interactive input if logged in, sleek CTA if logged out */}
         <div className="absolute bottom-0 left-0 w-full bg-gradient-to-t from-[#0a0a0a] via-[#0a0a0a]/95 to-transparent pt-10 pb-4 px-3 sm:px-4">
