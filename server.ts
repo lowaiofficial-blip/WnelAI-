@@ -114,6 +114,20 @@ async function startServer() {
     }
   });
 
+  // Temporary Test Access Code Verification
+  app.post('/api/verify-test-access', (req, res) => {
+    try {
+      const { code } = req.body;
+      const validCode = process.env.TEST_ACCESS_CODE || '9317';
+      if (typeof code === 'string' && code.trim() === validCode) {
+        return res.json({ success: true, message: 'Test erişimi onaylandı.' });
+      }
+      return res.status(401).json({ success: false, error: 'Erişim kodu hatalı.' });
+    } catch (e) {
+      return res.status(500).json({ success: false, error: 'Doğrulama sırasında sunucu hatası oluştu.' });
+    }
+  });
+
   app.post('/api/generate-title', async (req, res) => {
     try {
       const { messages } = req.body;

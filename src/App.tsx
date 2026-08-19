@@ -14,9 +14,13 @@ import { WnelLogo } from './components/common/WnelLogo';
 import { ProfileSettingsModal } from './components/profile/ProfileSettingsModal';
 import { AdminPanelModal } from './components/admin/AdminPanelModal';
 import { AuthModal } from './components/auth/AuthModal';
+import { TestAccessGate } from './components/auth/TestAccessGate';
 
 export default function App() {
   const { user, profile, isAdmin } = useAuth();
+  const [hasTestAccess, setHasTestAccess] = useState<boolean>(() => {
+    return localStorage.getItem('wnelai_test_access_granted') === 'true';
+  });
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [selectedModel, setSelectedModel] = useState<Model>(AVAILABLE_MODELS[0]);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -511,6 +515,13 @@ export default function App() {
         onClose={() => setIsAuthOpen(false)}
         initialMode={authMode}
       />
+
+      {/* Temporary Test Access Gate */}
+      <AnimatePresence>
+        {!hasTestAccess && (
+          <TestAccessGate onSuccess={() => setHasTestAccess(true)} />
+        )}
+      </AnimatePresence>
     </div>
   );
 }
