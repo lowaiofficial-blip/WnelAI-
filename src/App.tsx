@@ -211,7 +211,7 @@ export default function App() {
               setMessages(prev => [...prev, { id: aiMessageId, role: 'ai', content: '', isStreaming: true }]);
             }
             // Dynamic pacing based on queue size to catch up smoothly but naturally
-            const charsToTake = streamQueue.length > 100 ? 8 : (streamQueue.length > 30 ? 4 : 2);
+            const charsToTake = streamQueue.length > 500 ? 48 : (streamQueue.length > 150 ? 20 : (streamQueue.length > 50 ? 8 : 3));
             const chunk = streamQueue.slice(0, charsToTake);
             streamQueue = streamQueue.slice(charsToTake);
             displayedContent += chunk;

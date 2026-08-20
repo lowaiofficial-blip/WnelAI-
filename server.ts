@@ -30,14 +30,14 @@ async function startServer() {
 
   // API Routes
   app.post('/api/chat', async (req, res) => {
+    // Stream the response
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+
     try {
       const { messages, model } = req.body;
       
-      // Stream the response
-      res.setHeader('Content-Type', 'text/event-stream');
-      res.setHeader('Cache-Control', 'no-cache');
-      res.setHeader('Connection', 'keep-alive');
-
       let apiModel = model;
       if (model === 'qwen/qwen-turbo') {
         apiModel = 'qwen/qwen-plus';
@@ -45,69 +45,100 @@ async function startServer() {
         apiModel = 'qwen/qwen-2.5-coder-32b-instruct';
       }
 
+      let streamSuccess = false;
+
+      // 1. Try OpenRouter if requested and available
       if (apiModel?.startsWith('qwen') && openrouter) {
-        // Use OpenRouter API
-        const stream = await openrouter.chat.completions.create({
-          model: apiModel,
-          messages: [
-            { role: 'system', content: SYSTEM_PROMPT },
-            ...messages.map((m: any) => ({
-              role: m.role === 'user' ? 'user' : 'assistant',
-              content: m.content
-            }))
-          ],
-          stream: true,
-          // include_reasoning is typically supported by some OpenRouter models, we don't strictly need it to block streaming to user if we just only forward delta.content
-        });
+        try {
+          const stream = await openrouter.chat.completions.create({
+            model: apiModel,
+            messages: [
+              { role: 'system', content: SYSTEM_PROMPT },
+              ...messages.map((m: any) => ({
+                role: m.role === 'user' ? 'user' : 'assistant',
+                content: m.content
+              }))
+            ],
+            stream: true,
+            max_tokens: 4096,
+          });
 
-        for await (const chunk of stream) {
-          const content = chunk.choices[0]?.delta?.content || '';
-          if (content) {
-            res.write(`data: ${JSON.stringify({ text: content })}\n\n`);
-            await new Promise(r => setTimeout(r, 20));
-          }
-        }
-      } else {
-        // Fallback to Gemini 3.1 Pro if OpenAI key is missing or another model is selected
-        const geminiModel = 'gemini-3.6-flash';
-        
-        const history = messages.slice(0, -1).map((msg: any) => ({
-          role: msg.role === 'user' ? 'user' : 'model',
-          parts: [{ text: msg.content }]
-        }));
-        const currentMessage = messages[messages.length - 1].content;
-
-        const chat = ai.chats.create({
-          model: geminiModel,
-          history,
-          config: {
-            systemInstruction: SYSTEM_PROMPT
-          }
-        });
-
-        const responseStream = await chat.sendMessageStream(currentMessage);
-        for await (const chunk of responseStream) {
-          if (chunk.text) {
-            const chars = chunk.text.split('');
-            for (let i = 0; i < chars.length; i += 3) {
-              const piece = chars.slice(i, i+3).join('');
-              res.write(`data: ${JSON.stringify({ text: piece })}\n\n`);
-              await new Promise(r => setTimeout(r, 10));
+          for await (const chunk of stream) {
+            const content = chunk.choices[0]?.delta?.content || '';
+            if (content) {
+              res.write(`data: ${JSON.stringify({ text: content })}\n\n`);
             }
+          }
+          streamSuccess = true;
+        } catch (openrouterErr: any) {
+          console.warn('OpenRouter stream encountered error, attempting Gemini fallback:', openrouterErr?.message || openrouterErr);
+        }
+      }
+
+      // 2. Fallback to Gemini if OpenRouter was not used or failed
+      if (!streamSuccess && process.env.GEMINI_API_KEY) {
+        try {
+          const isDeepThinking = model?.includes('coder') || model?.includes('düşünen') || model?.includes('2.5-coder');
+          const geminiModel = isDeepThinking ? 'gemini-2.5-pro' : 'gemini-2.5-flash';
+
+          const formattedContents = messages.map((m: any) => ({
+            role: m.role === 'user' ? 'user' : 'model',
+            parts: [{ text: m.content }]
+          }));
+
+          const responseStream = await ai.models.generateContentStream({
+            model: geminiModel,
+            contents: formattedContents,
+            config: {
+              systemInstruction: SYSTEM_PROMPT
+            }
+          });
+
+          for await (const chunk of responseStream) {
+            if (chunk.text) {
+              res.write(`data: ${JSON.stringify({ text: chunk.text })}\n\n`);
+            }
+          }
+          streamSuccess = true;
+        } catch (geminiErr: any) {
+          console.error('Gemini fallback stream error:', geminiErr?.message || geminiErr);
+          
+          // Try standard flash as last resort if pro failed
+          try {
+            const responseStream = await ai.models.generateContentStream({
+              model: 'gemini-2.5-flash',
+              contents: messages.map((m: any) => ({
+                role: m.role === 'user' ? 'user' : 'model',
+                parts: [{ text: m.content }]
+              })),
+              config: { systemInstruction: SYSTEM_PROMPT }
+            });
+
+            for await (const chunk of responseStream) {
+              if (chunk.text) {
+                res.write(`data: ${JSON.stringify({ text: chunk.text })}\n\n`);
+              }
+            }
+            streamSuccess = true;
+          } catch (lastResortErr: any) {
+            console.error('All AI models failed:', lastResortErr?.message || lastResortErr);
           }
         }
       }
-      
+
+      if (!streamSuccess) {
+        res.write(`data: ${JSON.stringify({ text: '\n\n*(Model şu anda yoğun veya bağlantı koptu. Lütfen sorunuzu tekrar gönderin.)*' })}\n\n`);
+      }
+
       res.write('data: [DONE]\n\n');
       res.end();
 
     } catch (error: any) {
       console.error('Chat API Error:', error);
-      // If headers are not sent, send 500
       if (!res.headersSent) {
         res.status(500).json({ error: error.message || 'An error occurred' });
       } else {
-        res.write(`data: ${JSON.stringify({ text: '\n[Error: Model temporarily unavailable]' })}\n\n`);
+        res.write(`data: ${JSON.stringify({ text: '\n\n*(Bağlantı kesildi. Lütfen tekrar deneyin.)*' })}\n\n`);
         res.write('data: [DONE]\n\n');
         res.end();
       }
