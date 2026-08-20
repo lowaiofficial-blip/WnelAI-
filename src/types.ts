@@ -39,12 +39,12 @@ export const AVAILABLE_MODELS: Model[] = [
   {
     id: 'qwen/qwen-plus',
     name: '⚡ Hızlı',
-    description: 'Qwen3 Next (OpenRouter) - Anında streaming ile hızlı cevaplar.',
+    description: 'Qwen Plus (OpenRouter/Groq) - Anında ve akıcı hızlı yanıtlar.',
   },
   {
-    id: 'qwen/qwen-2.5-coder-32b-instruct',
+    id: 'deepseek/deepseek-r1',
     name: '🧠 Düşünen',
-    description: 'Qwen3 Coder (OpenRouter) - Karmaşık problemler için derin analiz.',
+    description: 'DeepSeek R1 - Kodlama, algoritmalar ve karmaşık mantık için derin düşünme.',
   },
 ];
 

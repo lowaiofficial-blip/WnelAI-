@@ -11,7 +11,17 @@ const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 const openrouterKey = process.env.OPENROUTER_API_KEY;
 const openrouter = openrouterKey ? new OpenAI({ 
   baseURL: 'https://openrouter.ai/api/v1',
-  apiKey: openrouterKey 
+  apiKey: openrouterKey,
+  defaultHeaders: {
+    'HTTP-Referer': 'https://wnelai.app',
+    'X-Title': 'WnelAI Assistant'
+  }
+}) : null;
+
+const groqKey = process.env.GROQ_API_KEY;
+const groq = groqKey ? new OpenAI({
+  baseURL: 'https://api.groq.com/openai/v1',
+  apiKey: groqKey
 }) : null;
 
 const SYSTEM_PROMPT = `Sen WnelAI'sın, doğal, akıcı ve samimi Türkçe konuşan premium bir yapay zeka asistanısın.
@@ -20,7 +30,42 @@ Kısa, net ve anlaşılır cevaplar ver. Aşırı resmi, robotik veya akademik b
 Örneğin, sana 'Naber' denildiğinde sözlük anlamı açıklama veya uyarı yapma; 'İyiyim, sen nasılsın?' gibi doğal, günlük bir tepki ver.
 Eğer kullanıcı eksik bir soru sorarsa (örn: 'Hasan doğru söylüyor mu?') asla bağlam uydurma. Bunun yerine 'Hasan ne dedi? Yazarsan birlikte değerlendirelim.' şeklinde, samimi bir dille eksik bilgiyi tamamlamasını iste.
 Gereksiz açıklamalar, sözlük tanımları veya yapay zeka olduğunu vurgulayan uzun girişler yasaktır.
-Cevaplarını Markdown formatında ver, kodları ve listeleri şık bir şekilde formatla.`;
+Cevaplarını Markdown formatında ver, kodları ve listeleri şık bir şekilde formatla.
+
+GÜVENLİK VE İÇERİK POLİTİKASI (ÇOK KESİN KURAL):
+Aşağıdaki konularda KESİNLİKLE hiçbir nasihat, tavsiye, alternatif veya uzun ret açıklaması yapma! Sadece ve doğrudan YALNIZCA şu özel hata kodunu döndür: [[SAFETY_VIOLATION_ERROR]]
+Yasaklı konular:
+1. Oyun hilesi, oyun hacki, exploit, aimbot, wallhack, cheat yazımı veya hile kodu/scripti isteme (Roblox, Valorant, CS, GTA, Minecraft vb. tüm oyunlar için hile/hack yazma/verme).
+2. Cinsel içerik, erotizm, pornografi, çıplaklık, müstehcenlik.
+3. Zararlı yazılım, virüs, trojan, keylogger, ddos, phishing/oltalama veya yetkisiz sızma/hackleme.
+4. Kendine zarar verme, intihar, şiddet, silah/bomba yapımı veya yasa dışı faaliyetler.
+Kullanıcı bunları isterse tek bir kelime dahi açıklama yapmadan SADECE [[SAFETY_VIOLATION_ERROR]] yaz.`;
+
+// Hızlı güvenlik, hile ve kötü içerik kontrolü
+function isContentUnsafe(text: string): boolean {
+  if (!text) return false;
+  const lower = text.toLowerCase();
+  
+  // 1. Oyun hilesi, hack, exploit, cheat kalıpları
+  const cheatPatterns = [
+    /\b(hile|hack|cheat|aimbot|wallhack|wh|esp|godmode|speedhack|unlimited money|sinirsiz para|mod menu|exploit|executor|roblox hile|cs go hile|valorant hile|hile yaz|hile kodu|hile scripti|hack yaz|bana hile|oyun hilesi)\b/i,
+    /\b(hile yap|hile kodla|hack yap|injector|dll inject|memory hack|bypass anticheat|anti cheat bypass)\b/i
+  ];
+
+  // 2. Cinsel / NSFW / Müstehcen kelimeler & kalıplar
+  const nsfwPatterns = [
+    /\b(porno|porn|pornografi|nsfw|hentai|erotik|erotizm|erotica|seks|sex|cinsel ilişki|mastürbasyon|escort|eskort|fetiş|onlyfans|çıplak|nude|vajina|penis|oral seks|anal seks|hardcore|masturbate|orgazm|göğüs aç|soyunan)\b/i,
+    /\b(bana erotik|cinsel hikaye|bana porno|çıplak fotoğraf|cinsel pozisyon|seks hikayesi|erotik masaj)\b/i
+  ];
+
+  // 3. Zararlı / Yasa dışı / Siber saldırı / Şiddet kalıpları
+  const harmfulPatterns = [
+    /\b(bomba yapımı|bomba nasıl yapılır|patlayıcı yapımı|zehir yapımı|molotof nasıl|uyuşturucu üretimi|uyuşturucu nasıl yapılır|nasıl intihar|intihar yöntemi|kendimi öldür|suikast planı)\b/i,
+    /\b(virüs yaz|trojan yap|keylogger kodla|ddos at|site çökert|hesap çal|wifi şifresi kır|phishing hazırla|oltalama sitesi)\b/i
+  ];
+
+  return cheatPatterns.some(p => p.test(lower)) || nsfwPatterns.some(p => p.test(lower)) || harmfulPatterns.some(p => p.test(lower));
+}
 
 async function startServer() {
   const app = express();
@@ -38,25 +83,43 @@ async function startServer() {
     try {
       const { messages, model } = req.body;
       
-      let apiModel = model;
-      if (model === 'qwen/qwen-turbo') {
-        apiModel = 'qwen/qwen-plus';
-      } else if (model === 'qwen/qwen-coder-32b-instruct' || model === 'qwen/qwen2.5-coder-32b-instruct') {
-        apiModel = 'qwen/qwen-2.5-coder-32b-instruct';
+      const cleanMessages = (Array.isArray(messages) ? messages : [])
+        .filter((m: any) => m && typeof m.content === 'string' && m.content.trim().length > 0);
+
+      if (cleanMessages.length === 0) {
+        res.write(`data: ${JSON.stringify({ text: 'Lütfen bir mesaj yazın.' })}\n\n`);
+        res.write('data: [DONE]\n\n');
+        return res.end();
       }
 
-      let streamSuccess = false;
+      // Güvenlik & Moderasyon Ön Kontrolü
+      const lastUserMessage = cleanMessages.filter((m: any) => m.role === 'user').slice(-1)[0];
+      if (lastUserMessage && isContentUnsafe(lastUserMessage.content)) {
+        res.write(`data: ${JSON.stringify({ text: '[[SAFETY_VIOLATION_ERROR]]' })}\n\n`);
+        res.write('data: [DONE]\n\n');
+        return res.end();
+      }
 
-      // 1. Try OpenRouter if requested and available
-      if (apiModel?.startsWith('qwen') && openrouter) {
+      let apiModel = model;
+      const isDeepThinking = model?.includes('deepseek') || model?.includes('coder') || model?.includes('düşünen') || model?.includes('r1');
+
+      let streamSuccess = false;
+      let streamedAnyChunks = false;
+
+      // 1. Try Groq if GROQ_API_KEY is configured (Ultra-fast LPU inference)
+      if (!streamSuccess && groq && process.env.GROQ_API_KEY) {
         try {
-          const stream = await openrouter.chat.completions.create({
-            model: apiModel,
+          const groqModel = isDeepThinking 
+            ? 'deepseek-r1-distill-llama-70b' 
+            : 'llama-3.3-70b-versatile';
+
+          const stream = await groq.chat.completions.create({
+            model: groqModel,
             messages: [
-              { role: 'system', content: SYSTEM_PROMPT },
-              ...messages.map((m: any) => ({
-                role: m.role === 'user' ? 'user' : 'assistant',
-                content: m.content
+              { role: 'system' as const, content: SYSTEM_PROMPT },
+              ...cleanMessages.map((m: any) => ({
+                role: (m.role === 'user' ? 'user' : 'assistant') as 'user' | 'assistant',
+                content: String(m.content)
               }))
             ],
             stream: true,
@@ -67,21 +130,52 @@ async function startServer() {
             const content = chunk.choices[0]?.delta?.content || '';
             if (content) {
               res.write(`data: ${JSON.stringify({ text: content })}\n\n`);
+              streamedAnyChunks = true;
+            }
+          }
+          streamSuccess = true;
+        } catch (groqErr: any) {
+          console.warn('Groq stream encountered error, trying next provider:', groqErr?.message || groqErr);
+        }
+      }
+
+      // 2. Try OpenRouter (DeepSeek R1 / Qwen Plus) if key is present
+      if (!streamSuccess && !streamedAnyChunks && openrouter && process.env.OPENROUTER_API_KEY) {
+        try {
+          let openrouterModel = isDeepThinking ? 'deepseek/deepseek-r1' : 'qwen/qwen-plus';
+          
+          const stream = await openrouter.chat.completions.create({
+            model: openrouterModel,
+            messages: [
+              { role: 'system' as const, content: SYSTEM_PROMPT },
+              ...cleanMessages.map((m: any) => ({
+                role: (m.role === 'user' ? 'user' : 'assistant') as 'user' | 'assistant',
+                content: String(m.content)
+              }))
+            ],
+            stream: true,
+            max_tokens: 4096,
+          });
+
+          for await (const chunk of stream) {
+            const content = chunk.choices[0]?.delta?.content || '';
+            if (content) {
+              res.write(`data: ${JSON.stringify({ text: content })}\n\n`);
+              streamedAnyChunks = true;
             }
           }
           streamSuccess = true;
         } catch (openrouterErr: any) {
-          console.warn('OpenRouter stream encountered error, attempting Gemini fallback:', openrouterErr?.message || openrouterErr);
+          console.warn('OpenRouter stream encountered error:', openrouterErr?.message || openrouterErr);
         }
       }
 
-      // 2. Fallback to Gemini if OpenRouter was not used or failed
-      if (!streamSuccess && process.env.GEMINI_API_KEY) {
+      // 3. Fallback to Gemini (gemini-3.7-flash)
+      if (!streamSuccess && !streamedAnyChunks && process.env.GEMINI_API_KEY) {
         try {
-          const isDeepThinking = model?.includes('coder') || model?.includes('düşünen') || model?.includes('2.5-coder');
-          const geminiModel = isDeepThinking ? 'gemini-2.5-pro' : 'gemini-2.5-flash';
+          const geminiModel = 'gemini-3.7-flash';
 
-          const formattedContents = messages.map((m: any) => ({
+          const formattedContents = cleanMessages.map((m: any) => ({
             role: m.role === 'user' ? 'user' : 'model',
             parts: [{ text: m.content }]
           }));
@@ -97,37 +191,17 @@ async function startServer() {
           for await (const chunk of responseStream) {
             if (chunk.text) {
               res.write(`data: ${JSON.stringify({ text: chunk.text })}\n\n`);
+              streamedAnyChunks = true;
             }
           }
           streamSuccess = true;
         } catch (geminiErr: any) {
           console.error('Gemini fallback stream error:', geminiErr?.message || geminiErr);
-          
-          // Try standard flash as last resort if pro failed
-          try {
-            const responseStream = await ai.models.generateContentStream({
-              model: 'gemini-2.5-flash',
-              contents: messages.map((m: any) => ({
-                role: m.role === 'user' ? 'user' : 'model',
-                parts: [{ text: m.content }]
-              })),
-              config: { systemInstruction: SYSTEM_PROMPT }
-            });
-
-            for await (const chunk of responseStream) {
-              if (chunk.text) {
-                res.write(`data: ${JSON.stringify({ text: chunk.text })}\n\n`);
-              }
-            }
-            streamSuccess = true;
-          } catch (lastResortErr: any) {
-            console.error('All AI models failed:', lastResortErr?.message || lastResortErr);
-          }
         }
       }
 
-      if (!streamSuccess) {
-        res.write(`data: ${JSON.stringify({ text: '\n\n*(Model şu anda yoğun veya bağlantı koptu. Lütfen sorunuzu tekrar gönderin.)*' })}\n\n`);
+      if (!streamSuccess && !streamedAnyChunks) {
+        res.write(`data: ${JSON.stringify({ text: '\n\n*(Model yanıt veremedi. Lütfen Settings menüsünden GEMINI_API_KEY veya OPENROUTER_API_KEY anahtarınızı kontrol edin.)*' })}\n\n`);
       }
 
       res.write('data: [DONE]\n\n');
@@ -179,11 +253,28 @@ ${messages.slice(0, 4).map((m: any) => `${m.role === 'user' ? 'Kullanıcı' : 'A
 
       let title = '';
 
-      // 1. Try Gemini first (if key exists)
-      if (process.env.GEMINI_API_KEY) {
+      // 1. Try Groq if key exists
+      if (groq && process.env.GROQ_API_KEY) {
+        try {
+          const completion = await groq.chat.completions.create({
+            model: 'llama-3.3-70b-versatile',
+            messages: [
+              { role: 'user', content: prompt }
+            ],
+            max_tokens: 30,
+            temperature: 0.5
+          });
+          title = completion.choices[0]?.message?.content?.trim() || '';
+        } catch (groqErr: any) {
+          console.warn('Groq title generation fallback:', groqErr?.message || groqErr);
+        }
+      }
+
+      // 2. Try Gemini (if key exists and title not yet created)
+      if (!title && process.env.GEMINI_API_KEY) {
         try {
           const response = await ai.models.generateContent({
-            model: 'gemini-2.5-flash',
+            model: 'gemini-3.7-flash',
             contents: prompt
           });
           title = response.text?.trim() || '';
@@ -192,7 +283,7 @@ ${messages.slice(0, 4).map((m: any) => `${m.role === 'user' ? 'Kullanıcı' : 'A
         }
       }
 
-      // 2. Try OpenRouter if Gemini failed or no Gemini key
+      // 3. Try OpenRouter if previous failed
       if (!title && openrouter) {
         try {
           const completion = await openrouter.chat.completions.create({

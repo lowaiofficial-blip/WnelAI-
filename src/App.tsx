@@ -186,7 +186,7 @@ export default function App() {
       const decoder = new TextDecoder();
       
       const aiMessageId = (Date.now() + 1).toString();
-      const isThinkingMode = selectedModel.id.includes('coder');
+      const isThinkingMode = selectedModel.id.includes('deepseek') || selectedModel.id.includes('coder') || selectedModel.id.includes('r1') || selectedModel.name.includes('Düşünen');
       
       let fullResponse = '';
       let isTimerDone = !isThinkingMode;
@@ -195,12 +195,12 @@ export default function App() {
       let displayedContent = '';
       let hasAddedMessage = false;
 
-      // Start the thinking timer (7.2 seconds for 4 steps)
+      // Start the thinking timer (6 seconds for thinking steps)
       const thinkingTimer = isThinkingMode 
         ? new Promise<void>(resolve => setTimeout(() => {
             isTimerDone = true;
             resolve();
-          }, 7200)) 
+          }, 6000)) 
         : Promise.resolve();
 
       const renderLoop = async () => {
@@ -253,6 +253,16 @@ export default function App() {
                 const parsed = JSON.parse(data);
                 fullResponse += parsed.text;
                 streamQueue += parsed.text;
+
+                // Safety violation: cancel timer immediately and display error
+                if (fullResponse.includes('[[SAFETY_VIOLATION_ERROR]]')) {
+                  isTimerDone = true;
+                  if (!hasAddedMessage) {
+                    hasAddedMessage = true;
+                    setMessages(prev => [...prev, { id: aiMessageId, role: 'ai', content: '[[SAFETY_VIOLATION_ERROR]]', isStreaming: false }]);
+                  }
+                }
+
                 // Fast mode: show typing indicator until first bytes arrive, then add message object
                 if (!isThinkingMode && !hasAddedMessage && streamQueue.length > 0) {
                   hasAddedMessage = true;
@@ -424,10 +434,10 @@ export default function App() {
                 <MessageBubble key={message.id} message={message} />
               ))
             )}
-            {isLoading && messages.length > 0 && messages[messages.length - 1].role === 'user' && selectedModel.id.includes('coder') && (
-              <ThinkingAnimation />
+            {isLoading && messages.length > 0 && messages[messages.length - 1].role === 'user' && (selectedModel.id.includes('deepseek') || selectedModel.id.includes('coder') || selectedModel.id.includes('r1') || selectedModel.name.includes('Düşünen')) && (
+              <ThinkingAnimation query={messages[messages.length - 1]?.content || ''} />
             )}
-            {isLoading && messages.length > 0 && messages[messages.length - 1].role === 'user' && !selectedModel.id.includes('coder') && (
+            {isLoading && messages.length > 0 && messages[messages.length - 1].role === 'user' && !(selectedModel.id.includes('deepseek') || selectedModel.id.includes('coder') || selectedModel.id.includes('r1') || selectedModel.name.includes('Düşünen')) && (
               <TypingAnimation />
             )}
             <div ref={messagesEndRef} className="h-4" />

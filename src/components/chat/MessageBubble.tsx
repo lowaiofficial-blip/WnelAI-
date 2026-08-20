@@ -2,7 +2,7 @@ import React from 'react';
 import { motion } from 'motion/react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { Copy, Edit2, RotateCcw, Check } from 'lucide-react';
+import { Copy, Edit2, RotateCcw, Check, AlertCircle } from 'lucide-react';
 import { Message } from '../../types';
 import { cn } from '../../lib/utils';
 import { WnelLogo } from '../common/WnelLogo';
@@ -58,12 +58,47 @@ function CodeBlock({ match, children, className, ...props }: any) {
 export function MessageBubble({ message }: MessageBubbleProps) {
   const isUser = message.role === 'user';
   const [copied, setCopied] = React.useState(false);
+  const isSafetyViolation = !isUser && message.content.includes('[[SAFETY_VIOLATION_ERROR]]');
 
   const handleCopy = () => {
     navigator.clipboard.writeText(message.content);
     setCopied(true);
     setTimeout(() => setCopied(false), 1500);
   };
+
+  if (isSafetyViolation) {
+    return (
+      <motion.div
+        initial={{ opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="flex w-full justify-start group"
+      >
+        <div className="max-w-[88%] md:max-w-[78%]">
+          <div className="flex items-center gap-2 mb-2">
+            <WnelLogo size="sm" />
+            <span className="text-sm font-medium text-zinc-400">WnelAI</span>
+          </div>
+
+          <div className="flex items-start gap-3 bg-red-500/10 border border-red-500/25 text-red-100 rounded-2xl p-4 shadow-lg shadow-red-950/20 backdrop-blur-md">
+            <div className="flex-shrink-0 w-8 h-8 rounded-full bg-red-500/20 border border-red-500/30 flex items-center justify-center text-red-400 mt-0.5">
+              <AlertCircle className="w-5 h-5 text-red-400 stroke-[2.2]" />
+            </div>
+            <div className="flex-1 text-[14px] leading-relaxed">
+              <p className="font-semibold text-red-300 text-[14.5px] m-0 mb-1">
+                Oops! Something went wrong.
+              </p>
+              <p className="text-red-200/90 text-[13.5px] leading-normal m-0">
+                Please try refreshing the page, and if the issue persists, contact support.
+              </p>
+              <p className="text-red-400/80 text-[12px] m-0 mt-2 pt-2 border-t border-red-500/15">
+                (Güvenlik ve topluluk kuralları gereğince oyun hilesi, cinsel, yasa dışı veya zararlı içerik talepleri işlenememektedir.)
+              </p>
+            </div>
+          </div>
+        </div>
+      </motion.div>
+    );
+  }
 
   return (
     <motion.div
