@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { cn } from '../../lib/utils';
+import { Sparkles } from 'lucide-react';
 
 export const WNEL_LOGO_URL = '/logo.png?v=8';
 
@@ -8,6 +9,7 @@ interface WnelLogoProps {
   size?: 'xs' | 'sm' | 'md' | 'lg' | 'xl' | 'custom';
   withGlow?: boolean;
   showText?: boolean;
+  showBadge?: boolean;
   textClassName?: string;
   alt?: string;
 }
@@ -16,7 +18,7 @@ const sizeClasses: Record<string, string> = {
   xs: 'w-4 h-4',
   sm: 'w-6 h-6',
   md: 'w-8 h-8',
-  lg: 'w-12 h-12',
+  lg: 'w-11 h-11',
   xl: 'w-16 h-16',
   custom: ''
 };
@@ -26,6 +28,7 @@ export function WnelLogo({
   size = 'md',
   withGlow = true,
   showText = false,
+  showBadge = false,
   textClassName = '',
   alt = 'WnelAI Logo'
 }: WnelLogoProps) {
@@ -36,9 +39,9 @@ export function WnelLogo({
   return (
     <div className={cn("flex items-center gap-2.5 shrink-0 select-none", className)}>
       <div className={cn(
-        "relative flex items-center justify-center rounded-xl overflow-hidden shrink-0",
+        "relative flex items-center justify-center rounded-xl overflow-hidden shrink-0 transition-transform duration-300",
         containerSize,
-        withGlow && "filter drop-shadow-[0_0_8px_rgba(59,130,246,0.4)]"
+        withGlow && "filter drop-shadow-[0_0_12px_rgba(56,189,248,0.45)]"
       )}>
         {!hasError ? (
           <img
@@ -49,15 +52,14 @@ export function WnelLogo({
             loading="eager"
           />
         ) : (
-          /* High-fidelity Vector Fallback Emblem (Infinity + Nodes) if image fails */
-          <div className="w-full h-full bg-gradient-to-tr from-blue-600 to-cyan-400 rounded-lg flex items-center justify-center p-1 shadow-inner">
+          /* High-fidelity Vector Fallback Emblem (Infinity + Nodes) */
+          <div className="w-full h-full bg-gradient-to-tr from-blue-600 via-sky-500 to-cyan-400 rounded-xl flex items-center justify-center p-1 shadow-inner border border-white/20">
             <svg
               viewBox="0 0 100 100"
               fill="none"
               xmlns="http://www.w3.org/2000/svg"
               className="w-full h-full text-white"
             >
-              {/* Infinity loop with nodes */}
               <circle cx="50" cy="18" r="7" fill="#ffffff" />
               <circle cx="28" cy="28" r="5" fill="#ffffff" />
               <circle cx="72" cy="28" r="5" fill="#ffffff" />
@@ -78,9 +80,17 @@ export function WnelLogo({
       </div>
 
       {showText && (
-        <span className={cn("text-xl font-semibold tracking-tight text-white flex items-center gap-1.5", textClassName)}>
-          WnelAI
-        </span>
+        <div className="flex items-center gap-1.5">
+          <span className={cn("text-lg font-bold tracking-tight text-white flex items-center gap-1", textClassName)}>
+            WnelAI
+          </span>
+          {showBadge && (
+            <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-sky-400 bg-sky-500/10 border border-sky-500/20 px-1.5 py-0.5 rounded-md">
+              <Sparkles className="w-2.5 h-2.5" />
+              <span>✦</span>
+            </span>
+          )}
+        </div>
       )}
     </div>
   );

@@ -73,7 +73,159 @@ async function startServer() {
 
   app.use(express.json());
 
-  // API Routes
+  // Health status generator
+  const fetchHealthData = async () => {
+    const timestamp = new Date().toISOString();
+
+    const testDeepSeekR1 = async () => {
+      const start = Date.now();
+      try {
+        if (groq && process.env.GROQ_API_KEY) {
+          await groq.chat.completions.create({
+            model: 'deepseek-r1-distill-llama-70b',
+            messages: [{ role: 'user', content: 'ping' }],
+            max_tokens: 5
+          });
+          return { name: 'Düşünen Mod (DeepSeek-R1)', status: 'Normal', latencyMs: Date.now() - start, provider: 'Groq LPU' };
+        } else if (openrouter && process.env.OPENROUTER_API_KEY) {
+          await openrouter.chat.completions.create({
+            model: 'deepseek/deepseek-r1',
+            messages: [{ role: 'user', content: 'ping' }],
+            max_tokens: 5
+          });
+          return { name: 'Düşünen Mod (DeepSeek-R1)', status: 'Normal', latencyMs: Date.now() - start, provider: 'OpenRouter' };
+        } else if (process.env.GEMINI_API_KEY) {
+          await ai.models.generateContent({
+            model: 'gemini-3.7-flash',
+            contents: 'ping',
+            config: { maxOutputTokens: 5 }
+          });
+          return { name: 'Düşünen Mod (DeepSeek-R1)', status: 'Normal', latencyMs: Date.now() - start, provider: 'Gemini (Fallback)' };
+        }
+        return { name: 'Düşünen Mod (DeepSeek-R1)', status: 'Kesinti', latencyMs: Date.now() - start, error: 'API Key bulunamadı' };
+      } catch (err: any) {
+        return { name: 'Düşünen Mod (DeepSeek-R1)', status: 'Kesinti', latencyMs: Date.now() - start, error: err?.message || 'Hata oluştu' };
+      }
+    };
+
+    const testQwenPlus = async () => {
+      const start = Date.now();
+      try {
+        if (groq && process.env.GROQ_API_KEY) {
+          await groq.chat.completions.create({
+            model: 'llama-3.3-70b-versatile',
+            messages: [{ role: 'user', content: 'ping' }],
+            max_tokens: 5
+          });
+          return { name: 'Hızlı Mod (Qwen Plus)', status: 'Normal', latencyMs: Date.now() - start, provider: 'Groq LPU' };
+        } else if (openrouter && process.env.OPENROUTER_API_KEY) {
+          await openrouter.chat.completions.create({
+            model: 'qwen/qwen-plus',
+            messages: [{ role: 'user', content: 'ping' }],
+            max_tokens: 5
+          });
+          return { name: 'Hızlı Mod (Qwen Plus)', status: 'Normal', latencyMs: Date.now() - start, provider: 'OpenRouter' };
+        } else if (process.env.GEMINI_API_KEY) {
+          await ai.models.generateContent({
+            model: 'gemini-3.7-flash',
+            contents: 'ping',
+            config: { maxOutputTokens: 5 }
+          });
+          return { name: 'Hızlı Mod (Qwen Plus)', status: 'Normal', latencyMs: Date.now() - start, provider: 'Gemini (Fallback)' };
+        }
+        return { name: 'Hızlı Mod (Qwen Plus)', status: 'Kesinti', latencyMs: Date.now() - start, error: 'API Key bulunamadı' };
+      } catch (err: any) {
+        return { name: 'Hızlı Mod (Qwen Plus)', status: 'Kesinti', latencyMs: Date.now() - start, error: err?.message || 'Hata oluştu' };
+      }
+    };
+
+    const testFirebaseGateway = async () => {
+      const start = Date.now();
+      try {
+        const response = await fetch('https://firestore.googleapis.com/$discovery/rest?version=v1', { method: 'HEAD' });
+        const latencyMs = Date.now() - start;
+        return {
+          name: 'Firebase Gateway',
+          status: response.ok || response.status < 500 ? 'Normal' : 'Kesinti',
+          latencyMs
+        };
+      } catch (err: any) {
+        return {
+          name: 'Firebase Gateway',
+          status: 'Kesinti',
+          latencyMs: Date.now() - start,
+          error: err?.message || 'Bağlantı hatası'
+        };
+      }
+    };
+
+    const testAiProxyRouter = async () => {
+      const start = Date.now();
+      const activeProviders = [
+        process.env.GROQ_API_KEY && 'Groq',
+        process.env.OPENROUTER_API_KEY && 'OpenRouter',
+        process.env.GEMINI_API_KEY && 'Gemini'
+      ].filter(Boolean);
+
+      return {
+        name: 'AI API (Proxy Router)',
+        status: activeProviders.length > 0 ? 'Normal' : 'Kesinti',
+        latencyMs: Date.now() - start,
+        activeProviders
+      };
+    };
+
+    const [deepseekResult, qwenResult, firebaseResult, proxyRouterResult] = await Promise.all([
+      testDeepSeekR1(),
+      testQwenPlus(),
+      testFirebaseGateway(),
+      testAiProxyRouter()
+    ]);
+
+    const isSystemHealthy = [deepseekResult, qwenResult, firebaseResult, proxyRouterResult]
+      .every(s => s.status === 'Normal');
+
+    return {
+      timestamp,
+      status: isSystemHealthy ? 'Normal' : 'Kesinti',
+      system: 'WnelAI Health Monitor',
+      services: {
+        deepseek_r1: deepseekResult,
+        qwen_plus: qwenResult,
+        firebase_gateway: firebaseResult,
+        ai_proxy_router: proxyRouterResult
+      }
+    };
+  };
+
+  // Background Job: Post health metrics every 1 minute
+  const sendStatusUpdate = async () => {
+    try {
+      const healthData = await fetchHealthData();
+      const response = await fetch('https://wnelai-status.onrender.com/api/ingest-health', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': 'wnelai_secret_status_key_2026'
+        },
+        body: JSON.stringify(healthData)
+      });
+      console.log(`[Status Cron] Pushed health data to status site. Response status: ${response.status}`);
+    } catch (err: any) {
+      console.error('[Status Cron] Failed to push status update:', err?.message);
+    }
+  };
+
+  // Start cron interval (every 60,000 ms = 1 minute)
+  setInterval(sendStatusUpdate, 60000);
+  // Send initial ping after boot
+  setTimeout(sendStatusUpdate, 5000);
+
+  app.get('/api/health', async (req, res) => {
+    const healthData = await fetchHealthData();
+    res.json(healthData);
+  });
+
   app.post('/api/chat', async (req, res) => {
     // Stream the response
     res.setHeader('Content-Type', 'text/event-stream');

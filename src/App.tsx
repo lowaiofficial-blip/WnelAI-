@@ -318,7 +318,7 @@ export default function App() {
   };
 
   return (
-    <div className="flex h-screen bg-[#0a0a0a] text-zinc-200 overflow-hidden font-sans antialiased selection:bg-blue-500/30">
+    <div className="flex h-screen wnel-ambient-bg text-zinc-200 overflow-hidden font-sans antialiased selection:bg-sky-500/30">
       <Sidebar 
         isOpen={isSidebarOpen} 
         onClose={() => setIsSidebarOpen(false)} 
@@ -370,13 +370,13 @@ export default function App() {
                 <div className="flex flex-col items-center gap-4 mb-6">
                   <WnelLogo size="xl" withGlow={true} />
                   <div className="text-center max-w-lg">
-                    <h1 className="text-2xl sm:text-3xl md:text-4xl font-semibold text-white tracking-tight leading-tight mb-2">
+                    <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold text-white tracking-tight leading-tight mb-2">
                       WnelAI'ye Hoş Geldiniz
                     </h1>
-                    <h2 className="text-base sm:text-lg md:text-xl font-medium text-blue-400 tracking-tight leading-snug">
+                    <h2 className="text-base sm:text-lg md:text-xl font-medium text-sky-400 tracking-tight leading-snug">
                       Sohbete başlamak için giriş yapın veya kayıt olun.
                     </h2>
-                    <p className="text-xs sm:text-sm text-zinc-400 mt-2 max-w-md mx-auto">
+                    <p className="text-xs sm:text-sm text-zinc-400 mt-2.5 max-w-md mx-auto leading-relaxed">
                       WnelAI ile kod yazın, analiz yapın, fikir üretin ve sınırsız yapay zeka deneyiminin tadını çıkarın.
                     </p>
                   </div>
@@ -386,14 +386,14 @@ export default function App() {
                 <div className="flex flex-col sm:flex-row items-center gap-3 w-full max-w-xs sm:max-w-sm">
                   <button
                     onClick={() => handleOpenAuth('login')}
-                    className="w-full sm:flex-1 flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-500 active:scale-95 text-white font-medium py-3 px-5 rounded-2xl shadow-lg shadow-blue-600/25 transition-all text-sm cursor-pointer"
+                    className="w-full sm:flex-1 flex items-center justify-center gap-2 bg-gradient-to-r from-sky-500 to-blue-600 hover:from-sky-400 hover:to-blue-500 active:scale-95 text-white font-semibold py-3 px-5 rounded-2xl shadow-lg shadow-sky-500/25 transition-all text-sm cursor-pointer"
                   >
                     <LogIn className="w-4 h-4" />
                     <span>Giriş Yap</span>
                   </button>
                   <button
                     onClick={() => handleOpenAuth('register')}
-                    className="w-full sm:flex-1 flex items-center justify-center gap-2 bg-white/5 hover:bg-white/10 active:scale-95 border border-white/10 hover:border-white/20 text-zinc-200 font-medium py-3 px-5 rounded-2xl transition-all text-sm cursor-pointer"
+                    className="w-full sm:flex-1 flex items-center justify-center gap-2 bg-white/[0.05] hover:bg-white/[0.1] active:scale-95 border border-white/10 hover:border-sky-500/30 text-zinc-200 font-medium py-3 px-5 rounded-2xl transition-all text-sm cursor-pointer"
                   >
                     <UserPlus className="w-4 h-4" />
                     <span>Kayıt Ol</span>
@@ -402,8 +402,8 @@ export default function App() {
               </div>
             ) : user && !user.emailVerified ? (
               <div className="flex flex-col items-center justify-center min-h-[60vh] opacity-0 animate-[fadeIn_0.6s_ease-out_forwards]">
-                <div className="bg-[#141416] border border-blue-500/30 rounded-3xl p-8 text-center max-w-md shadow-2xl">
-                  <div className="w-12 h-12 rounded-2xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-center mx-auto mb-4 text-blue-400">
+                <div className="glass-panel rounded-3xl p-8 text-center max-w-md shadow-2xl">
+                  <div className="w-12 h-12 rounded-2xl bg-sky-500/10 border border-sky-500/20 flex items-center justify-center mx-auto mb-4 text-sky-400">
                     <Mail className="w-6 h-6" />
                   </div>
                   <h2 className="text-xl font-semibold text-white mb-2">E-posta doğrulaması gerekli</h2>
@@ -417,15 +417,18 @@ export default function App() {
               </div>
             ) : isChatLoading ? (
               <div className="flex flex-col items-center justify-center h-[60vh]">
-                <Loader2 className="w-8 h-8 text-blue-500 animate-spin" />
+                <Loader2 className="w-8 h-8 text-sky-400 animate-spin" />
               </div>
             ) : messages.length === 0 ? (
-              <div className="flex flex-col items-center justify-center min-h-[65vh] opacity-0 animate-[fadeIn_0.6s_ease-out_forwards]">
+              <div className="flex flex-col items-center justify-center min-h-[60vh] opacity-0 animate-[fadeIn_0.6s_ease-out_forwards]">
                 <div className="flex flex-col items-center gap-4 mb-4">
                   <WnelLogo size="xl" withGlow={true} />
                   <div className="text-center">
-                    <h1 className="text-2xl md:text-3xl font-semibold text-blue-500 tracking-tight leading-snug">Hadi başlayalım.</h1>
-                    <h2 className="text-2xl md:text-3xl font-semibold text-blue-500/80 tracking-tight leading-snug">WnelAI'ye Sor, Daha Fazlasını Öğren.</h2>
+                    <h1 className="text-2xl sm:text-3xl font-bold text-white tracking-tight leading-snug">Hadi başlayalım.</h1>
+                    <h2 className="text-2xl sm:text-3xl font-bold text-sky-400 tracking-tight leading-snug flex items-center justify-center gap-2">
+                      <span>WnelAI'ye Sor, Daha Fazlasını Öğren.</span>
+                      <span className="text-sky-400 text-lg">✦</span>
+                    </h2>
                   </div>
                 </div>
               </div>
