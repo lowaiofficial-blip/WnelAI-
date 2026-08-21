@@ -6,7 +6,7 @@ import { InputArea } from './components/chat/InputArea';
 import { ThinkingAnimation } from './components/chat/ThinkingAnimation';
 import { TypingAnimation } from './components/chat/TypingAnimation';
 import { Message, Model, AVAILABLE_MODELS } from './types';
-import { Loader2, Ban, LogIn, UserPlus, Sparkles, Mail, ArrowDown } from 'lucide-react';
+import { Loader2, Ban, LogIn, UserPlus, Sparkles, Mail, ArrowDown, Clock, Lock, AlertCircle, X } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { useAuth } from './contexts/AuthContext';
 import { createChat, addMessageToChat, getChatMessages, updateChatTitle } from './lib/firebase/firestore';
@@ -15,6 +15,13 @@ import { ProfileSettingsModal } from './components/profile/ProfileSettingsModal'
 import { AdminPanelModal } from './components/admin/AdminPanelModal';
 import { AuthModal } from './components/auth/AuthModal';
 import { TestAccessGate } from './components/auth/TestAccessGate';
+import { 
+  getThinkingCooldownUntil, 
+  setThinkingCooldown, 
+  getThinkingLimitMessage, 
+  getIstanbulFormattedTime,
+  formatRemainingTime 
+} from './lib/thinkingCooldown';
 
 export default function App() {
   const { user, profile, isAdmin } = useAuth();
@@ -22,7 +29,12 @@ export default function App() {
     return localStorage.getItem('wnelai_test_access_granted') === 'true';
   });
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
-  const [selectedModel, setSelectedModel] = useState<Model>(AVAILABLE_MODELS[0]);
+  const [thinkingCooldownUntil, setThinkingCooldownUntil] = useState<number>(() => getThinkingCooldownUntil());
+  const [selectedModel, setSelectedModel] = useState<Model>(() => {
+    const isLocked = getThinkingCooldownUntil() > Date.now();
+    return isLocked ? AVAILABLE_MODELS[0] : AVAILABLE_MODELS[0];
+  });
+  const [cooldownToast, setCooldownToast] = useState<{ message: string; visible: boolean } | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isChatLoading, setIsChatLoading] = useState(false);
@@ -90,6 +102,42 @@ export default function App() {
     }
   }, [messages, isLoading]);
 
+  // Periodic ticker for thinking mode cooldown
+  useEffect(() => {
+    const checkCooldown = () => {
+      const until = getThinkingCooldownUntil();
+      setThinkingCooldownUntil(until);
+      if (until > Date.now()) {
+        // If locked and currently selected model is thinking, force back to fast
+        setSelectedModel(prev => {
+          if (prev.id.includes('deepseek') || prev.name.includes('Düşünen')) {
+            return AVAILABLE_MODELS[0];
+          }
+          return prev;
+        });
+      }
+    };
+    checkCooldown();
+    const interval = setInterval(checkCooldown, 2000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const showThinkingLockedAlert = (until?: number) => {
+    const timestamp = until || thinkingCooldownUntil || (Date.now() + 3 * 3600 * 1000);
+    const msg = getThinkingLimitMessage(timestamp);
+    setCooldownToast({ message: msg, visible: true });
+  };
+
+  const handleModelSelect = (model: Model) => {
+    const isThinking = model.name.includes("Düşünen") || model.id.includes("deepseek");
+    if (isThinking && thinkingCooldownUntil > Date.now()) {
+      showThinkingLockedAlert(thinkingCooldownUntil);
+      setSelectedModel(AVAILABLE_MODELS[0]);
+      return;
+    }
+    setSelectedModel(model);
+  };
+
   // Support URL hash #admin
   useEffect(() => {
     const handleHashChange = () => {
@@ -149,6 +197,92 @@ export default function App() {
     }
   };
 
+
+  const handleRegenerateMessage = async (messageId: string) => {
+    if (profile?.isBanned || isLoading) return;
+    
+    // Find the message index
+    const msgIndex = messages.findIndex(m => m.id === messageId);
+    if (msgIndex === -1) return;
+
+    // Get the AI message and the user message before it
+    const aiMessage = messages[msgIndex];
+    if (aiMessage.role !== 'ai') return;
+
+    // Remove the AI message and all messages after it, effectively resetting state to right after the user prompt
+    const newMessages = messages.slice(0, msgIndex);
+    setMessages(newMessages);
+    
+    // Call the API again with the previous messages
+    setIsLoading(true);
+    isAtBottomRef.current = true;
+    setTimeout(() => scrollToBottom('smooth'), 20);
+    
+    try {
+      const response = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          messages: newMessages,
+          model: selectedModel.id 
+        })
+      });
+
+      if (!response.ok) throw new Error('API Error');
+
+      const reader = response.body?.getReader();
+      const decoder = new TextDecoder();
+
+      if (reader) {
+        let assistantMessage: Message = { id: Date.now().toString(), role: 'ai', content: '', isStreaming: true };
+        setMessages(prev => [...prev, assistantMessage]);
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          const chunk = decoder.decode(value);
+          const lines = chunk.split('\n');
+          
+          for (const line of lines) {
+            if (line.startsWith('data: ') && line !== 'data: [DONE]') {
+              try {
+                const data = JSON.parse(line.slice(5));
+                assistantMessage.content += data.text;
+                setMessages(prev => [
+                  ...prev.slice(0, -1),
+                  { ...assistantMessage }
+                ]);
+              } catch (e) {
+                console.error('Error parsing SSE data:', e);
+              }
+            }
+          }
+        }
+        
+        assistantMessage.isStreaming = false;
+        setMessages(prev => [
+          ...prev.slice(0, -1),
+          assistantMessage
+        ]);
+
+        if (user && currentChatId && assistantMessage.content) {
+          await addMessageToChat(currentChatId, 'ai', assistantMessage.content);
+        }
+      }
+    } catch (error) {
+      console.error('Chat error:', error);
+      const errorMessage: Message = { 
+        id: Date.now().toString(), 
+        role: 'ai', 
+        content: '*(Bağlantı kesildi veya bir hata oluştu. Lütfen tekrar deneyin.)*' 
+      };
+      setMessages(prev => [...prev, errorMessage]);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const handleSendMessage = async (content: string) => {
     if (profile?.isBanned) {
       return;
@@ -188,6 +322,14 @@ export default function App() {
       const aiMessageId = (Date.now() + 1).toString();
       const isThinkingMode = selectedModel.id.includes('deepseek') || selectedModel.id.includes('coder') || selectedModel.id.includes('r1') || selectedModel.name.includes('Düşünen');
       
+      // If thinking mode was used, start the 3-hour cooldown and force switch to Fast Mode
+      if (isThinkingMode) {
+        const unlockTimestamp = setThinkingCooldown();
+        setThinkingCooldownUntil(unlockTimestamp);
+        setSelectedModel(AVAILABLE_MODELS[0]);
+        showThinkingLockedAlert(unlockTimestamp);
+      }
+
       let fullResponse = '';
       let isTimerDone = !isThinkingMode;
       let streamQueue = '';
@@ -328,12 +470,16 @@ export default function App() {
         onOpenProfile={handleOpenProfile}
         onOpenAdmin={handleOpenAdmin}
         onOpenAuth={handleOpenAuth}
+        selectedModel={selectedModel}
+        onModelSelect={handleModelSelect}
+        thinkingCooldownUntil={thinkingCooldownUntil}
+        onThinkingLockedClick={() => showThinkingLockedAlert()}
       />
       
       <main className="flex-1 flex flex-col h-full min-w-0 relative">
         <Header 
           selectedModel={selectedModel}
-          onModelSelect={setSelectedModel}
+          onModelSelect={handleModelSelect}
           onToggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)}
           isSidebarOpen={isSidebarOpen}
           onNewChat={handleNewChat}
@@ -434,7 +580,7 @@ export default function App() {
               </div>
             ) : (
               messages.map(message => (
-                <MessageBubble key={message.id} message={message} />
+                <MessageBubble key={message.id} message={message} onRegenerate={!isLoading && message.role === "ai" ? () => handleRegenerateMessage(message.id) : undefined} />
               ))
             )}
             {isLoading && messages.length > 0 && messages[messages.length - 1].role === 'user' && (selectedModel.id.includes('deepseek') || selectedModel.id.includes('coder') || selectedModel.id.includes('r1') || selectedModel.name.includes('Düşünen')) && (
@@ -477,7 +623,11 @@ export default function App() {
         <div className="absolute bottom-0 left-0 w-full bg-gradient-to-t from-[#0a0a0a] via-[#0a0a0a]/95 to-transparent pt-10 pb-4 px-3 sm:px-4">
           <div className="max-w-4xl mx-auto">
             {user && user.emailVerified && !profile?.isBanned ? (
-              <InputArea onSend={handleSendMessage} isLoading={isLoading} />
+              <InputArea 
+                onSend={handleSendMessage} 
+                isLoading={isLoading} 
+                thinkingCooldownUntil={thinkingCooldownUntil}
+              />
             ) : !user ? (
               <div className="bg-[#141416]/95 border border-white/10 backdrop-blur-xl rounded-2xl p-3.5 sm:p-4 shadow-2xl flex flex-col sm:flex-row items-center justify-between gap-3 sm:gap-4">
                 <div className="flex items-center gap-3 text-center sm:text-left">
@@ -533,6 +683,37 @@ export default function App() {
       <AnimatePresence>
         {!hasTestAccess && (
           <TestAccessGate onSuccess={() => setHasTestAccess(true)} />
+        )}
+      </AnimatePresence>
+
+      {/* Floating Cooldown Notification Toast */}
+      <AnimatePresence>
+        {cooldownToast && cooldownToast.visible && (
+          <motion.div
+            initial={{ opacity: 0, y: -20, scale: 0.95 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -20, scale: 0.95 }}
+            transition={{ duration: 0.25 }}
+            className="fixed top-20 left-1/2 -translate-x-1/2 z-50 max-w-lg w-[92%] sm:w-auto"
+          >
+            <div className="bg-[#18181b]/95 border border-amber-500/40 text-white px-4 py-3 rounded-2xl shadow-2xl shadow-amber-950/40 backdrop-blur-xl flex items-center justify-between gap-3.5">
+              <div className="flex items-center gap-3">
+                <div className="w-8 h-8 rounded-xl bg-amber-500/20 border border-amber-500/30 flex items-center justify-center shrink-0 text-amber-400 shadow-[0_0_12px_rgba(245,158,11,0.25)]">
+                  <Clock className="w-4 h-4" />
+                </div>
+                <div className="text-xs sm:text-sm text-zinc-200 leading-snug">
+                  {cooldownToast.message}
+                </div>
+              </div>
+              <button 
+                onClick={() => setCooldownToast(null)}
+                className="text-zinc-400 hover:text-white p-1 rounded-lg hover:bg-white/10 transition-colors shrink-0 cursor-pointer"
+                title="Kapat"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          </motion.div>
         )}
       </AnimatePresence>
     </div>

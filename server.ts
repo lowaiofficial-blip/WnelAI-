@@ -94,14 +94,14 @@ async function startServer() {
 
         if (groqClient) {
           await groqClient.chat.completions.create({
-            model: 'llama3-70b-8192',
+            model: 'qwen/qwen3.6-27b',
             messages: [{ role: 'user', content: 'ping' }],
             max_tokens: 5
           });
           return { name: 'Düşünen Mod (DeepSeek-R1)', status: 'Normal', latencyMs: Date.now() - start, provider: 'Groq LPU' };
         } else if (openrouterClient) {
           await openrouterClient.chat.completions.create({
-            model: 'deepseek/deepseek-r1:free',
+            model: 'deepseek/deepseek-r1',
             messages: [{ role: 'user', content: 'ping' }],
             max_tokens: 5
           });
@@ -129,7 +129,7 @@ async function startServer() {
 
         if (groqClient) {
           await groqClient.chat.completions.create({
-            model: 'llama3-8b-8192',
+            model: 'openai/gpt-oss-20b',
             messages: [{ role: 'user', content: 'ping' }],
             max_tokens: 5
           });
@@ -243,6 +243,67 @@ async function startServer() {
     res.json(healthData);
   });
 
+  // Stream chunk parser to filter out <think>...</think> blocks dynamically
+  class ThinkFilter {
+    private buffer = '';
+    private inThinkBlock = false;
+
+    process(chunk: string): string {
+      this.buffer += chunk;
+      let output = '';
+
+      while (this.buffer.length > 0) {
+        if (!this.inThinkBlock) {
+          const thinkStart = this.buffer.indexOf('<think>');
+          if (thinkStart !== -1) {
+            output += this.buffer.substring(0, thinkStart);
+            this.inThinkBlock = true;
+            this.buffer = this.buffer.substring(thinkStart + 7);
+            continue;
+          }
+
+          const possibleStart = this.buffer.lastIndexOf('<');
+          if (possibleStart !== -1 && '<think>'.startsWith(this.buffer.substring(possibleStart))) {
+            output += this.buffer.substring(0, possibleStart);
+            this.buffer = this.buffer.substring(possibleStart);
+            break; // wait for more chunks
+          } else {
+            output += this.buffer;
+            this.buffer = '';
+          }
+        } else {
+          const thinkEnd = this.buffer.indexOf('</think>');
+          if (thinkEnd !== -1) {
+            this.inThinkBlock = false;
+            this.buffer = this.buffer.substring(thinkEnd + 8);
+            // Clean up leading newlines after </think> block ends
+            this.buffer = this.buffer.replace(/^\s*\n\n/, '').replace(/^\s*\n/, '');
+            continue;
+          }
+
+          const possibleEnd = this.buffer.lastIndexOf('<');
+          if (possibleEnd !== -1 && '</think>'.startsWith(this.buffer.substring(possibleEnd))) {
+            this.buffer = this.buffer.substring(possibleEnd);
+            break; // wait for more chunks
+          } else {
+            this.buffer = ''; // discard reasoning
+            break;
+          }
+        }
+      }
+      return output;
+    }
+    
+    flush(): string {
+      if (!this.inThinkBlock && this.buffer.length > 0) {
+        const out = this.buffer;
+        this.buffer = '';
+        return out;
+      }
+      return '';
+    }
+  }
+
   app.post('/api/chat', async (req, res) => {
     // Stream the response
     res.setHeader('Content-Type', 'text/event-stream');
@@ -288,8 +349,8 @@ async function startServer() {
       if (!streamSuccess && activeGroq) {
         try {
           const groqModel = isDeepThinking 
-            ? 'llama3-70b-8192' 
-            : 'llama3-8b-8192';
+            ? 'qwen/qwen3.6-27b' 
+            : 'openai/gpt-oss-20b';
 
           const stream = await activeGroq.chat.completions.create({
             model: groqModel,
@@ -304,12 +365,21 @@ async function startServer() {
             max_tokens: 4096,
           });
 
+          const filter = new ThinkFilter();
           for await (const chunk of stream) {
             const content = chunk.choices[0]?.delta?.content || '';
             if (content) {
-              res.write(`data: ${JSON.stringify({ text: content })}\n\n`);
-              streamedAnyChunks = true;
+              const filteredText = filter.process(content);
+              if (filteredText) {
+                res.write(`data: ${JSON.stringify({ text: filteredText })}\n\n`);
+                streamedAnyChunks = true;
+              }
             }
+          }
+          const finalOut = filter.flush();
+          if (finalOut) {
+            res.write(`data: ${JSON.stringify({ text: finalOut })}\n\n`);
+            streamedAnyChunks = true;
           }
           streamSuccess = true;
         } catch (groqErr: any) {
@@ -323,7 +393,7 @@ async function startServer() {
       // 2. Try OpenRouter (DeepSeek R1 / Qwen Plus) if client is active
       if (!streamSuccess && !streamedAnyChunks && activeOpenRouter) {
         try {
-          let openrouterModel = isDeepThinking ? 'deepseek/deepseek-r1:free' : 'openrouter/free';
+          let openrouterModel = isDeepThinking ? 'deepseek/deepseek-r1' : 'openrouter/free';
           
           const stream = await activeOpenRouter.chat.completions.create({
             model: openrouterModel,
@@ -338,12 +408,21 @@ async function startServer() {
             max_tokens: 4096,
           });
 
+          const filter = new ThinkFilter();
           for await (const chunk of stream) {
             const content = chunk.choices[0]?.delta?.content || '';
             if (content) {
-              res.write(`data: ${JSON.stringify({ text: content })}\n\n`);
-              streamedAnyChunks = true;
+              const filteredText = filter.process(content);
+              if (filteredText) {
+                res.write(`data: ${JSON.stringify({ text: filteredText })}\n\n`);
+                streamedAnyChunks = true;
+              }
             }
+          }
+          const finalOut = filter.flush();
+          if (finalOut) {
+            res.write(`data: ${JSON.stringify({ text: finalOut })}\n\n`);
+            streamedAnyChunks = true;
           }
           streamSuccess = true;
         } catch (openrouterErr: any) {
@@ -372,11 +451,20 @@ async function startServer() {
             }
           });
 
+          const filter = new ThinkFilter();
           for await (const chunk of responseStream) {
             if (chunk.text) {
-              res.write(`data: ${JSON.stringify({ text: chunk.text })}\n\n`);
-              streamedAnyChunks = true;
+              const filteredText = filter.process(chunk.text);
+              if (filteredText) {
+                res.write(`data: ${JSON.stringify({ text: filteredText })}\n\n`);
+                streamedAnyChunks = true;
+              }
             }
+          }
+          const finalOut = filter.flush();
+          if (finalOut) {
+            res.write(`data: ${JSON.stringify({ text: finalOut })}\n\n`);
+            streamedAnyChunks = true;
           }
           streamSuccess = true;
         } catch (geminiErr: any) {
@@ -388,7 +476,11 @@ async function startServer() {
       }
 
       if (!streamSuccess && !streamedAnyChunks) {
-        res.write(`data: ${JSON.stringify({ text: '\n\n*(Model yanıt veremedi. Hata Detayları: ' + lastErrors.join(', ') + ')*' })}\n\n`);
+        if (isDeepThinking) {
+          res.write(`data: ${JSON.stringify({ text: '⚠️ Düşünen Mod şu anda yoğunluk nedeniyle kullanılamıyor. Lütfen biraz sonra tekrar deneyin.' })}\n\n`);
+        } else {
+          res.write(`data: ${JSON.stringify({ text: '\n\n*(Model yanıt veremedi. Hata Detayları: ' + lastErrors.join(', ') + ')*' })}\n\n`);
+        }
       }
 
       res.write('data: [DONE]\n\n');
@@ -461,7 +553,7 @@ ${messages.slice(0, 4).map((m: any) => `${m.role === 'user' ? 'Kullanıcı' : 'A
       if (!title && groqClient) {
         try {
           const completion = await groqClient.chat.completions.create({
-            model: 'llama3-8b-8192',
+            model: 'openai/gpt-oss-20b',
             messages: [
               { role: 'user', content: prompt }
             ],

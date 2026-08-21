@@ -11,7 +11,8 @@ import {
   updateDoc, 
   deleteDoc, 
   serverTimestamp,
-  writeBatch
+  writeBatch,
+  onSnapshot
 } from 'firebase/firestore';
 import { db, auth } from './config';
 import { UserProfile, UserSettings } from '../../types';
@@ -84,7 +85,11 @@ export async function createChat(userId: string, title: string): Promise<string>
   }
 }
 
-export async function getUserChats(userId: string): Promise<Chat[]> {
+export function subscribeToUserChats(
+  userId: string, 
+  callback: (chats: Chat[]) => void,
+  onError?: (err: any) => void
+): () => void {
   const path = 'chats';
   try {
     const q = query(
@@ -92,15 +97,47 @@ export async function getUserChats(userId: string): Promise<Chat[]> {
       where('userId', '==', userId),
       orderBy('updatedAt', 'desc')
     );
-    const snapshot = await getDocs(q);
-    return snapshot.docs.map(doc => ({
-      id: doc.id,
-      ...doc.data()
-    } as Chat));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const chats = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      } as Chat));
+      callback(chats);
+    }, (error) => {
+      console.error("Firestore onSnapshot error:", error);
+      if (onError) onError(error);
+    });
+    return unsubscribe;
   } catch (error) {
-    handleFirestoreError(error, OperationType.LIST, path);
-    return [];
+    console.error("Failed to subscribe to user chats:", error);
+    return () => {};
   }
+}
+
+export function getUserChats(userId: string): Promise<Chat[]>;
+export function getUserChats(userId: string, callback: (chats: Chat[]) => void): () => void;
+export function getUserChats(userId: string, callback?: (chats: Chat[]) => void): Promise<Chat[]> | (() => void) {
+  if (callback) {
+    return subscribeToUserChats(userId, callback);
+  }
+  const path = 'chats';
+  return (async () => {
+    try {
+      const q = query(
+        collection(db, path),
+        where('userId', '==', userId),
+        orderBy('updatedAt', 'desc')
+      );
+      const snapshot = await getDocs(q);
+      return snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      } as Chat));
+    } catch (error) {
+      handleFirestoreError(error, OperationType.LIST, path);
+      return [];
+    }
+  })();
 }
 
 export async function getChatMessages(chatId: string): Promise<ChatMessage[]> {

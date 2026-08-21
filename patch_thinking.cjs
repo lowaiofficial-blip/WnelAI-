@@ -1,4 +1,6 @@
-import React from 'react';
+const fs = require('fs');
+
+const content = `import React from 'react';
 import { motion } from 'motion/react';
 import { Brain, Sparkles } from 'lucide-react';
 import { WnelLogo } from '../common/WnelLogo';
@@ -50,3 +52,7 @@ export function ThinkingAnimation({ query }: ThinkingAnimationProps) {
     </motion.div>
   );
 }
+`;
+
+fs.writeFileSync('src/components/chat/ThinkingAnimation.tsx', content);
+console.log('ThinkingAnimation patched successfully');

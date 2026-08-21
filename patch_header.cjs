@@ -1,4 +1,6 @@
-import React from 'react';
+const fs = require('fs');
+
+const headerContent = `import React from 'react';
 import { PanelLeftOpen, ShieldCheck } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { Model } from '../../types';
@@ -52,25 +54,16 @@ export function Header({
       {/* Center: Current Model Badge */}
       <div className="absolute left-1/2 -translate-x-1/2 flex items-center">
         <div className={cn(
-          "px-3.5 py-1.5 rounded-full text-xs font-semibold flex items-center gap-2.5 border backdrop-blur-md transition-all duration-300",
+          "px-3 py-1.5 rounded-full text-xs font-semibold flex items-center gap-2 border shadow-lg backdrop-blur-md",
           isThinking 
-            ? "bg-indigo-500/10 text-indigo-300 border-indigo-500/25 shadow-[0_0_15px_rgba(99,102,241,0.15)]" 
-            : "bg-white/[0.08] text-white border-white/20 shadow-[0_0_18px_rgba(255,255,255,0.2)]"
+            ? "bg-indigo-500/10 text-indigo-300 border-indigo-500/20 shadow-indigo-500/10" 
+            : "bg-sky-500/10 text-sky-300 border-sky-500/20 shadow-sky-500/10"
         )}>
-          <span className="relative flex h-2 w-2 items-center justify-center">
-            {isThinking ? (
-              <>
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-indigo-400 opacity-75"></span>
-                <span className="relative inline-flex rounded-full h-2 w-2 bg-indigo-500"></span>
-              </>
-            ) : (
-              <>
-                <span className="animate-ping absolute inline-flex h-3.5 w-3.5 rounded-full bg-white opacity-75" style={{ animationDuration: '1.5s' }}></span>
-                <span className="relative inline-flex rounded-full h-2 w-2 bg-white shadow-[0_0_8px_#ffffff]"></span>
-              </>
-            )}
+          <span className="relative flex h-2 w-2">
+            <span className={cn("animate-ping absolute inline-flex h-full w-full rounded-full opacity-75", isThinking ? "bg-indigo-400" : "bg-sky-400")}></span>
+            <span className={cn("relative inline-flex rounded-full h-2 w-2", isThinking ? "bg-indigo-500" : "bg-sky-500")}></span>
           </span>
-          <span className="tracking-wide font-medium">{selectedModel.name}</span>
+          {selectedModel.name}
         </div>
       </div>
 
@@ -90,3 +83,7 @@ export function Header({
     </header>
   );
 }
+`;
+
+fs.writeFileSync('src/components/layout/Header.tsx', headerContent);
+console.log('Header patched successfully');
