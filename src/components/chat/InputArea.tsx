@@ -1,5 +1,5 @@
-import React, { useRef, useEffect } from 'react';
-import { Plus, Send, StopCircle, Mic, Sparkles, Clock, Lock, Zap } from 'lucide-react';
+import React, { useRef, useEffect, useState } from 'react';
+import { Plus, Send, StopCircle, Mic, Sparkles, Clock, Lock, Zap, X } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { getIstanbulFormattedTime, formatRemainingTime } from '../../lib/thinkingCooldown';
 
@@ -10,12 +10,20 @@ interface InputAreaProps {
 }
 
 export function InputArea({ onSend, isLoading, thinkingCooldownUntil = 0 }: InputAreaProps) {
-  const [input, setInput] = React.useState('');
+  const [input, setInput] = useState('');
+  const [isBannerDismissed, setIsBannerDismissed] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const isCooldownActive = thinkingCooldownUntil > Date.now();
   const istanbulTime = isCooldownActive ? getIstanbulFormattedTime(thinkingCooldownUntil) : '';
   const remainingMs = Math.max(0, thinkingCooldownUntil - Date.now());
+
+  // Reset banner dismissal whenever a new cooldown timestamp is triggered
+  useEffect(() => {
+    if (thinkingCooldownUntil > Date.now()) {
+      setIsBannerDismissed(false);
+    }
+  }, [thinkingCooldownUntil]);
 
   const adjustHeight = () => {
     const textarea = textareaRef.current;
@@ -49,7 +57,7 @@ export function InputArea({ onSend, isLoading, thinkingCooldownUntil = 0 }: Inpu
   return (
     <div className="w-full max-w-3xl mx-auto px-4 pb-4 sm:pb-6 pt-2">
       {/* Thinking Mode Cooldown Banner */}
-      {isCooldownActive && (
+      {isCooldownActive && !isBannerDismissed && (
         <div className="mb-2.5 bg-gradient-to-r from-amber-500/10 via-orange-500/10 to-amber-500/10 border border-amber-500/25 backdrop-blur-xl rounded-2xl px-3.5 py-2.5 flex items-center justify-between gap-3 shadow-lg shadow-amber-950/20 text-xs animate-in fade-in slide-in-from-bottom-2 duration-300">
           <div className="flex items-center gap-2.5 min-w-0">
             <div className="w-7 h-7 rounded-xl bg-amber-500/20 border border-amber-500/30 flex items-center justify-center shrink-0 text-amber-300 shadow-[0_0_10px_rgba(245,158,11,0.2)]">
@@ -59,11 +67,20 @@ export function InputArea({ onSend, isLoading, thinkingCooldownUntil = 0 }: Inpu
               Saat <strong className="text-white bg-amber-500/30 px-1.5 py-0.5 rounded border border-amber-500/40 text-amber-100 font-bold">{istanbulTime}</strong>'a kadar düşünen mod limitiniz dolmuştur. <span className="text-zinc-400 font-normal">(Hızlı moda geçildi)</span>
             </p>
           </div>
-          <div className="shrink-0 flex items-center gap-1.5 bg-amber-500/15 border border-amber-500/30 px-2 py-1 rounded-lg">
-            <Lock className="w-3 h-3 text-amber-400" />
-            <span className="text-amber-300 font-mono text-[11px] font-medium">
-              {formatRemainingTime(remainingMs)}
-            </span>
+          <div className="shrink-0 flex items-center gap-2">
+            <div className="flex items-center gap-1.5 bg-amber-500/15 border border-amber-500/30 px-2 py-1 rounded-lg">
+              <Lock className="w-3 h-3 text-amber-400" />
+              <span className="text-amber-300 font-mono text-[11px] font-medium">
+                {formatRemainingTime(remainingMs)}
+              </span>
+            </div>
+            <button
+              onClick={() => setIsBannerDismissed(true)}
+              className="text-zinc-400 hover:text-white p-1 rounded-lg hover:bg-white/10 transition-colors cursor-pointer"
+              title="Mesajı gizle (Düşünen mod kilitli kalmaya devam eder)"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
           </div>
         </div>
       )}

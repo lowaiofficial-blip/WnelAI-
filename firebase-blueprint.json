@@ -16,6 +16,7 @@
         "isBanned": { "type": "boolean" },
         "banReason": { "type": "string", "maxLength": 200 },
         "role": { "type": "string", "enum": ["user", "admin"] },
+        "thinkingCooldownUntil": { "type": "number" },
         "settings": { "type": "object" }
       },
       "required": ["email"]

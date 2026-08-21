@@ -1,5 +1,12 @@
 export const THINKING_COOLDOWN_MS = 3 * 60 * 60 * 1000; // 3 hours in ms
-const LOCAL_STORAGE_KEY = 'wnelai_thinking_cooldown_until';
+const GLOBAL_KEY = 'wnelai_thinking_cooldown_until';
+
+function getUserStorageKey(userId?: string | null): string {
+  if (userId) {
+    return `wnelai_thinking_cooldown_user_${userId}`;
+  }
+  return GLOBAL_KEY;
+}
 
 /**
  * Format a timestamp to local time HH:MM (e.g. 17:32)
@@ -23,15 +30,40 @@ export function getLocalFormattedTime(timestamp: number): string {
 export const getIstanbulFormattedTime = getLocalFormattedTime;
 
 /**
- * Get current thinking cooldown expiration timestamp in ms (or 0 if not in cooldown)
+ * Get current thinking cooldown expiration timestamp in ms for a specific user (or 0 if not in cooldown)
  */
-export function getThinkingCooldownUntil(): number {
+export function getThinkingCooldownUntil(userId?: string | null, profileCooldown?: number): number {
+  const now = Date.now();
+  // 1. If profile from Firestore has active cooldown, return it
+  if (profileCooldown && typeof profileCooldown === 'number' && profileCooldown > now) {
+    return profileCooldown;
+  }
+
+  // 2. Otherwise check user-specific localStorage
+  if (userId) {
+    try {
+      const userVal = localStorage.getItem(getUserStorageKey(userId));
+      if (userVal) {
+        const timestamp = parseInt(userVal, 10);
+        if (!isNaN(timestamp) && timestamp > now) {
+          return timestamp;
+        } else {
+          localStorage.removeItem(getUserStorageKey(userId));
+        }
+      }
+    } catch {
+      // ignore
+    }
+    return 0;
+  }
+
+  // 3. Fallback for unauthenticated/guest
   try {
-    const val = localStorage.getItem(LOCAL_STORAGE_KEY);
+    const val = localStorage.getItem(GLOBAL_KEY);
     if (!val) return 0;
     const timestamp = parseInt(val, 10);
-    if (isNaN(timestamp) || timestamp <= Date.now()) {
-      localStorage.removeItem(LOCAL_STORAGE_KEY);
+    if (isNaN(timestamp) || timestamp <= now) {
+      localStorage.removeItem(GLOBAL_KEY);
       return 0;
     }
     return timestamp;
@@ -41,12 +73,18 @@ export function getThinkingCooldownUntil(): number {
 }
 
 /**
- * Set thinking cooldown timestamp to 3 hours from now
+ * Set thinking cooldown timestamp to 3 hours from now for a specific user
  */
-export function setThinkingCooldown(): number {
+export function setThinkingCooldown(userId?: string | null): number {
   const unlockTimestamp = Date.now() + THINKING_COOLDOWN_MS;
   try {
-    localStorage.setItem(LOCAL_STORAGE_KEY, unlockTimestamp.toString());
+    if (userId) {
+      localStorage.setItem(getUserStorageKey(userId), unlockTimestamp.toString());
+      // Remove any global legacy key
+      localStorage.removeItem(GLOBAL_KEY);
+    } else {
+      localStorage.setItem(GLOBAL_KEY, unlockTimestamp.toString());
+    }
   } catch (e) {
     console.error("Failed to save cooldown in localStorage", e);
   }

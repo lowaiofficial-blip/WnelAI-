@@ -246,6 +246,7 @@ export async function getUserProfile(uid: string): Promise<UserProfile | null> {
         lastSeenAt: data.lastSeenAt,
         isBanned: data.isBanned || false,
         banReason: data.banReason || '',
+        thinkingCooldownUntil: typeof data.thinkingCooldownUntil === 'number' ? data.thinkingCooldownUntil : 0,
         settings: {
           ...DEFAULT_USER_SETTINGS,
           ...(data.settings || {})

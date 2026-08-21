@@ -51,6 +51,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           lastSeenAt: serverTimestamp(),
           isBanned: false,
           banReason: '',
+          thinkingCooldownUntil: 0,
           settings: DEFAULT_USER_SETTINGS
         };
         await setDoc(doc(db, 'users', uid), initialProfile, { merge: true });
@@ -63,6 +64,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           bio: '',
           role: initialProfile.role,
           isBanned: false,
+          thinkingCooldownUntil: 0,
           settings: DEFAULT_USER_SETTINGS
         });
       }
@@ -102,6 +104,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               lastSeenAt: data.lastSeenAt,
               isBanned: !!data.isBanned,
               banReason: data.banReason || '',
+              thinkingCooldownUntil: typeof data.thinkingCooldownUntil === 'number' ? data.thinkingCooldownUntil : 0,
               settings: {
                 ...DEFAULT_USER_SETTINGS,
                 ...(data.settings || {})

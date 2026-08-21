@@ -24,16 +24,15 @@ import {
 } from './lib/thinkingCooldown';
 
 export default function App() {
-  const { user, profile, isAdmin } = useAuth();
+  const { user, profile, isAdmin, updateProfileData } = useAuth();
   const [hasTestAccess, setHasTestAccess] = useState<boolean>(() => {
     return localStorage.getItem('wnelai_test_access_granted') === 'true';
   });
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
-  const [thinkingCooldownUntil, setThinkingCooldownUntil] = useState<number>(() => getThinkingCooldownUntil());
-  const [selectedModel, setSelectedModel] = useState<Model>(() => {
-    const isLocked = getThinkingCooldownUntil() > Date.now();
-    return isLocked ? AVAILABLE_MODELS[0] : AVAILABLE_MODELS[0];
+  const [thinkingCooldownUntil, setThinkingCooldownUntil] = useState<number>(() => {
+    return getThinkingCooldownUntil(user?.uid, profile?.thinkingCooldownUntil);
   });
+  const [selectedModel, setSelectedModel] = useState<Model>(AVAILABLE_MODELS[0]);
   const [cooldownToast, setCooldownToast] = useState<{ message: string; visible: boolean } | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -102,10 +101,10 @@ export default function App() {
     }
   }, [messages, isLoading]);
 
-  // Periodic ticker for thinking mode cooldown
+  // Periodic ticker & account sync for thinking mode cooldown
   useEffect(() => {
     const checkCooldown = () => {
-      const until = getThinkingCooldownUntil();
+      const until = getThinkingCooldownUntil(user?.uid, profile?.thinkingCooldownUntil);
       setThinkingCooldownUntil(until);
       if (until > Date.now()) {
         // If locked and currently selected model is thinking, force back to fast
@@ -120,7 +119,7 @@ export default function App() {
     checkCooldown();
     const interval = setInterval(checkCooldown, 2000);
     return () => clearInterval(interval);
-  }, []);
+  }, [user?.uid, profile?.thinkingCooldownUntil]);
 
   const showThinkingLockedAlert = (until?: number) => {
     const timestamp = until || thinkingCooldownUntil || (Date.now() + 3 * 3600 * 1000);
@@ -324,10 +323,15 @@ export default function App() {
       
       // If thinking mode was used, start the 3-hour cooldown and force switch to Fast Mode
       if (isThinkingMode) {
-        const unlockTimestamp = setThinkingCooldown();
+        const unlockTimestamp = setThinkingCooldown(user?.uid);
         setThinkingCooldownUntil(unlockTimestamp);
         setSelectedModel(AVAILABLE_MODELS[0]);
         showThinkingLockedAlert(unlockTimestamp);
+        if (user) {
+          updateProfileData({ thinkingCooldownUntil: unlockTimestamp }).catch(e => {
+            console.warn("Could not save thinkingCooldownUntil to Firestore:", e);
+          });
+        }
       }
 
       let fullResponse = '';

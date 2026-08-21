@@ -32,6 +32,7 @@ export interface UserProfile {
   lastSeenAt?: any;
   isBanned?: boolean;
   banReason?: string;
+  thinkingCooldownUntil?: number;
   settings?: UserSettings;
 }
 
