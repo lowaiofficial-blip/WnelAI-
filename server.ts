@@ -218,7 +218,7 @@ async function startServer() {
   const sendStatusUpdate = async () => {
     try {
       const healthData = await fetchHealthData();
-      const apiKey = process.env.STATUS_API_KEY || 'wnelai_secret_status_key_2026';
+      const apiKey = process.env.STATUS_API_KEY || 'benim_gizli_anahtarim_9988';
       const response = await fetch('https://wnelai-status.onrender.com/api/ingest-health', {
         method: 'POST',
         headers: {
