@@ -1,9 +1,10 @@
 import React from 'react';
-import { PanelLeftOpen, ShieldCheck } from 'lucide-react';
+import { PanelLeftOpen, ShieldCheck, Sparkles } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { Model } from '../../types';
 import { useAuth } from '../../contexts/AuthContext';
 import { WnelLogo } from '../common/WnelLogo';
+import { GoBadge } from '../common/GoBadge';
 
 interface HeaderProps {
   selectedModel: Model;
@@ -13,15 +14,17 @@ interface HeaderProps {
   onNewChat: () => void;
   onOpenProfile: (tab?: 'profile' | 'account' | 'notifications' | 'appearance') => void;
   onOpenAdmin: () => void;
+  onOpenGoModal?: () => void;
 }
 
 export function Header({ 
   selectedModel, 
   onToggleSidebar, 
   isSidebarOpen, 
-  onOpenAdmin 
+  onOpenAdmin,
+  onOpenGoModal 
 }: HeaderProps) {
-  const { user, profile, isAdmin } = useAuth();
+  const { user, isAdmin, isGo } = useAuth();
   
   const isThinking = selectedModel.id.includes('deepseek') || selectedModel.name.includes('Düşünen');
 
@@ -74,8 +77,23 @@ export function Header({
         </div>
       </div>
 
-      {/* Right side: Minimal Actions */}
+      {/* Right side: Actions, Go status & Admin */}
       <div className="flex items-center gap-2">
+        {isGo ? (
+          <div onClick={onOpenGoModal} className="cursor-pointer">
+            <GoBadge size="sm" />
+          </div>
+        ) : onOpenGoModal ? (
+          <button
+            onClick={onOpenGoModal}
+            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-gradient-to-r from-amber-500/10 via-orange-500/10 to-amber-500/10 hover:from-amber-500/20 hover:to-orange-500/20 border border-amber-500/30 text-amber-300 text-xs font-semibold transition-all cursor-pointer shadow-sm"
+          >
+            <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+            <span className="hidden sm:inline">WnelAI Go</span>
+            <span className="sm:hidden">Go</span>
+          </button>
+        ) : null}
+
         {user && isAdmin && (
           <button
             onClick={onOpenAdmin}

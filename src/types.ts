@@ -19,6 +19,8 @@ export interface UserSettings {
   soundEffects: boolean;
 }
 
+export type UserPlan = 'free' | 'go';
+
 export interface UserProfile {
   uid: string;
   email: string;
@@ -27,13 +29,38 @@ export interface UserProfile {
   photoURL?: string;
   bio?: string;
   role?: 'admin' | 'user';
+  plan?: UserPlan;
   createdAt?: any;
   updatedAt?: any;
   lastSeenAt?: any;
   isBanned?: boolean;
   banReason?: string;
   thinkingCooldownUntil?: number;
+  thinkingUsesToday?: number;
+  thinkingLastUsedDate?: string;
+  chatCountToday?: number;
+  chatLastDate?: string;
   settings?: UserSettings;
+}
+
+export interface VipClaim {
+  id?: string;
+  userId: string;
+  email: string;
+  displayName: string;
+  username: string;
+  orderNumber: number;
+  status: 'pending' | 'approved' | 'rejected';
+  createdAt: any;
+  reviewedAt?: any;
+  reviewedBy?: string;
+}
+
+export interface VipCampaign {
+  id?: string;
+  claimedCount: number;
+  maxClaims: number;
+  updatedAt: any;
 }
 
 export const AVAILABLE_MODELS: Model[] = [

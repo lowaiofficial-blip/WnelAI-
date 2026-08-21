@@ -16,6 +16,7 @@ interface AuthContextType {
   user: User | null;
   profile: UserProfile | null;
   isAdmin: boolean;
+  isGo: boolean;
   loading: boolean;
   signOut: () => Promise<void>;
   resendVerificationEmail: () => Promise<void>;
@@ -32,6 +33,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [isAdmin, setIsAdmin] = useState<boolean>(false);
   const [loading, setLoading] = useState(true);
 
+  const isGo = profile?.plan === 'go';
+
   const fetchProfile = useCallback(async (uid: string, currentUser: User) => {
     try {
       const p = await getUserProfile(uid);
@@ -46,6 +49,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           photoURL: currentUser.photoURL || '',
           bio: '',
           role: currentUser.email === 'lowai.official@gmail.com' ? 'admin' : 'user',
+          plan: 'free',
           createdAt: serverTimestamp(),
           updatedAt: serverTimestamp(),
           lastSeenAt: serverTimestamp(),
@@ -63,6 +67,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           photoURL: initialProfile.photoURL || '',
           bio: '',
           role: initialProfile.role,
+          plan: 'free',
           isBanned: false,
           thinkingCooldownUntil: 0,
           settings: DEFAULT_USER_SETTINGS
@@ -86,7 +91,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setUser(currentUser);
         await fetchProfile(currentUser.uid, currentUser);
 
-        // Real-time listener for current user's profile updates (e.g. if banned or profile updated)
+        // Real-time listener for current user's profile updates (e.g. if banned or profile/plan updated)
         const userDocRef = doc(db, 'users', currentUser.uid);
         unsubscribeDoc = onSnapshot(userDocRef, (docSnap) => {
           if (docSnap.exists()) {
@@ -99,6 +104,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               photoURL: data.photoURL || currentUser.photoURL || '',
               bio: data.bio || '',
               role: data.role || (currentUser.email === 'lowai.official@gmail.com' ? 'admin' : 'user'),
+              plan: (data.plan === 'go' ? 'go' : 'free'),
               createdAt: data.createdAt,
               updatedAt: data.updatedAt,
               lastSeenAt: data.lastSeenAt,
@@ -190,6 +196,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       user, 
       profile, 
       isAdmin, 
+      isGo,
       loading, 
       signOut, 
       resendVerificationEmail, 

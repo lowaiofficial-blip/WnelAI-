@@ -9,8 +9,9 @@ import { Message, Model, AVAILABLE_MODELS } from './types';
 import { Loader2, Ban, LogIn, UserPlus, Sparkles, Mail, ArrowDown, Clock, Lock, AlertCircle, X } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { useAuth } from './contexts/AuthContext';
-import { createChat, addMessageToChat, getChatMessages, updateChatTitle } from './lib/firebase/firestore';
+import { createChat, addMessageToChat, getChatMessages, updateChatTitle, claimVipCampaign } from './lib/firebase/firestore';
 import { WnelLogo } from './components/common/WnelLogo';
+import { WnelGoModal } from './components/common/WnelGoModal';
 import { ProfileSettingsModal } from './components/profile/ProfileSettingsModal';
 import { AdminPanelModal } from './components/admin/AdminPanelModal';
 import { AuthModal } from './components/auth/AuthModal';
@@ -22,9 +23,10 @@ import {
   getIstanbulFormattedTime,
   formatRemainingTime 
 } from './lib/thinkingCooldown';
+import { checkChatLimit, checkThinkingLimit, incrementDailyUsage } from './lib/usageLimits';
 
 export default function App() {
-  const { user, profile, isAdmin, updateProfileData } = useAuth();
+  const { user, profile, isAdmin, updateProfileData, isGo } = useAuth();
   const [hasTestAccess, setHasTestAccess] = useState<boolean>(() => {
     return localStorage.getItem('wnelai_test_access_granted') === 'true';
   });
@@ -45,6 +47,7 @@ export default function App() {
   const [isAdminPanelOpen, setIsAdminPanelOpen] = useState(false);
   const [isAuthOpen, setIsAuthOpen] = useState(false);
   const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
+  const [isGoModalOpen, setIsGoModalOpen] = useState(false);
   
   // Intelligent Scroll State
   const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -287,6 +290,96 @@ export default function App() {
       return;
     }
 
+    const trimmedContent = content.trim();
+    const userPlan = profile?.plan === 'go' ? 'go' : 'free';
+
+    // 1. VIP CLAIM COMMAND: /claimvip
+    if (trimmedContent.toLowerCase() === '/claimvip') {
+      const userMessage: Message = { id: Date.now().toString(), role: 'user', content: trimmedContent };
+      setMessages(prev => [...prev, userMessage]);
+      setIsLoading(true);
+      isAtBottomRef.current = true;
+      setTimeout(() => scrollToBottom('smooth'), 20);
+
+      try {
+        let activeChatId = currentChatId;
+        if (user && !activeChatId) {
+          activeChatId = await createChat(user.uid, "VIP Başvurusu");
+          setCurrentChatId(activeChatId);
+        }
+        if (user && activeChatId) {
+          await addMessageToChat(activeChatId, 'user', trimmedContent);
+        }
+
+        let aiReply = '';
+        if (!user) {
+          aiReply = "⚠️ VIP başvurusunda bulunabilmek için lütfen önce giriş yapın.";
+        } else {
+          const claimResult = await claimVipCampaign(
+            user.uid,
+            user.email || '',
+            profile?.displayName || user.displayName || 'Kullanıcı',
+            profile?.username || ''
+          );
+
+          if (claimResult.status === 'success') {
+            aiReply = `🎉 Tebrikler! İlk 5 kişilik WnelAI Go VIP kontenjanına girdiniz (#${claimResult.orderNumber}).\nAdmin onayından sonra üyeliğiniz aktifleştirilecektir.`;
+          } else if (claimResult.status === 'already_claimed') {
+            aiReply = "ℹ️ Zaten VIP başvurunuz bulunmaktadır. Durum: Onay Bekliyor / Aktif";
+          } else if (claimResult.status === 'quota_full') {
+            aiReply = "😔 Maalesef ilk 5 kişilik VIP kontenjanı doldu.\nDaha sonraki etkinliklerimizi takip edin!";
+          } else {
+            aiReply = `⚠️ VIP başvuru işlemi sırasında bir sorun oluştu: ${claimResult.message || 'Lütfen tekrar deneyin.'}`;
+          }
+        }
+
+        const aiMsg: Message = {
+          id: (Date.now() + 1).toString(),
+          role: 'ai',
+          content: aiReply,
+          isStreaming: false
+        };
+        setMessages(prev => [...prev, aiMsg]);
+        if (user && activeChatId) {
+          await addMessageToChat(activeChatId, 'ai', aiReply);
+        }
+      } catch (err) {
+        console.error("Error executing /claimvip:", err);
+      } finally {
+        setIsLoading(false);
+      }
+      return;
+    }
+
+    // 2. CHECK CHAT LIMIT
+    const chatLimitCheck = checkChatLimit(userPlan, user?.uid);
+    if (!chatLimitCheck.allowed) {
+      setCooldownToast({
+        message: `🚀 Günlük mesaj limitiniz dolmuştur (${chatLimitCheck.limit}/${chatLimitCheck.limit}). Sınırsız sohbet için WnelAI Go'ya geçebilirsiniz.`,
+        visible: true
+      });
+      setIsGoModalOpen(true);
+      return;
+    }
+
+    // 3. CHECK THINKING LIMIT
+    const isThinkingMode = selectedModel.id.includes('deepseek') || selectedModel.id.includes('coder') || selectedModel.id.includes('r1') || selectedModel.name.includes('Düşünen');
+    if (isThinkingMode) {
+      const thinkingLimitCheck = checkThinkingLimit(userPlan, user?.uid, profile?.thinkingCooldownUntil);
+      if (!thinkingLimitCheck.allowed) {
+        if (thinkingLimitCheck.reason === 'daily_limit') {
+          setCooldownToast({
+            message: `🧠 WnelAI Go günlük Düşünen Mod limitiniz doldu (${thinkingLimitCheck.limitToday}/${thinkingLimitCheck.limitToday}).`,
+            visible: true
+          });
+        } else {
+          showThinkingLockedAlert(thinkingLimitCheck.cooldownUntil);
+        }
+        setSelectedModel(AVAILABLE_MODELS[0]);
+        return;
+      }
+    }
+
     let activeChatId = currentChatId;
     const userMessage: Message = { id: Date.now().toString(), role: 'user', content };
     const newMessages = [...messages, userMessage];
@@ -306,6 +399,9 @@ export default function App() {
         await addMessageToChat(activeChatId, 'user', content);
       }
 
+      // Record chat usage
+      incrementDailyUsage(user?.uid, 'chat');
+
       const response = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -319,18 +415,22 @@ export default function App() {
       const decoder = new TextDecoder();
       
       const aiMessageId = (Date.now() + 1).toString();
-      const isThinkingMode = selectedModel.id.includes('deepseek') || selectedModel.id.includes('coder') || selectedModel.id.includes('r1') || selectedModel.name.includes('Düşünen');
       
-      // If thinking mode was used, start the 3-hour cooldown and force switch to Fast Mode
+      // If thinking mode was used, record thinking usage and handle plan-specific cooldown
       if (isThinkingMode) {
-        const unlockTimestamp = setThinkingCooldown(user?.uid);
-        setThinkingCooldownUntil(unlockTimestamp);
-        setSelectedModel(AVAILABLE_MODELS[0]);
-        showThinkingLockedAlert(unlockTimestamp);
-        if (user) {
-          updateProfileData({ thinkingCooldownUntil: unlockTimestamp }).catch(e => {
-            console.warn("Could not save thinkingCooldownUntil to Firestore:", e);
-          });
+        incrementDailyUsage(user?.uid, 'thinking');
+
+        if (userPlan === 'free') {
+          // Free users get 3-hour cooldown
+          const unlockTimestamp = setThinkingCooldown(user?.uid);
+          setThinkingCooldownUntil(unlockTimestamp);
+          setSelectedModel(AVAILABLE_MODELS[0]);
+          showThinkingLockedAlert(unlockTimestamp);
+          if (user) {
+            updateProfileData({ thinkingCooldownUntil: unlockTimestamp }).catch(e => {
+              console.warn("Could not save thinkingCooldownUntil to Firestore:", e);
+            });
+          }
         }
       }
 
@@ -489,6 +589,7 @@ export default function App() {
           onNewChat={handleNewChat}
           onOpenProfile={handleOpenProfile}
           onOpenAdmin={handleOpenAdmin}
+          onOpenGoModal={() => setIsGoModalOpen(true)}
         />
 
         {/* Banned banner if user is suspended */}
@@ -631,6 +732,16 @@ export default function App() {
                 onSend={handleSendMessage} 
                 isLoading={isLoading} 
                 thinkingCooldownUntil={thinkingCooldownUntil}
+                isGo={isGo}
+                onAttachClick={() => {
+                  if (!isGo) {
+                    setCooldownToast({
+                      message: "🚀 Dosya yükleme WnelAI Go özelliğidir. VIP veya Go üyesi olarak dosya yükleyebilirsiniz.",
+                      visible: true
+                    });
+                    setIsGoModalOpen(true);
+                  }
+                }}
               />
             ) : !user ? (
               <div className="bg-[#141416]/95 border border-white/10 backdrop-blur-xl rounded-2xl p-3.5 sm:p-4 shadow-2xl flex flex-col sm:flex-row items-center justify-between gap-3 sm:gap-4">
@@ -668,6 +779,17 @@ export default function App() {
         isOpen={isProfileOpen}
         onClose={() => setIsProfileOpen(false)}
         initialTab={profileInitialTab}
+        onOpenGoModal={() => setIsGoModalOpen(true)}
+      />
+
+      {/* WnelAI Go Modal */}
+      <WnelGoModal
+        isOpen={isGoModalOpen}
+        onClose={() => setIsGoModalOpen(false)}
+        onClaimVipPrompt={() => {
+          setIsGoModalOpen(false);
+          handleSendMessage('/claimvip');
+        }}
       />
 
       {/* Admin Panel Modal */}

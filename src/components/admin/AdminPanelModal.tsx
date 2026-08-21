@@ -24,11 +24,16 @@ import {
   ExternalLink,
   MessageCircle,
   Hash,
-  Info
+  Info,
+  Rocket,
+  Sparkles,
+  CheckCircle2,
+  XCircle,
+  AlertTriangle
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { cn } from '../../lib/utils';
-import { UserProfile } from '../../types';
+import { UserProfile, VipClaim } from '../../types';
 import { 
   getAllUsersForAdmin, 
   banUser, 
@@ -36,10 +41,16 @@ import {
   deleteUserAndData, 
   getUserChatLogsForAdmin, 
   getAdminStats,
+  getAllVipClaimsForAdmin,
+  approveVipClaim,
+  rejectVipClaim,
+  setUserPlan,
   Chat,
   ChatMessage
 } from '../../lib/firebase/firestore';
 import { WnelLogo } from '../common/WnelLogo';
+import { GoBadge } from '../common/GoBadge';
+import { getLocalFormattedTime } from '../../lib/thinkingCooldown';
 
 interface AdminPanelModalProps {
   isOpen: boolean;
@@ -49,8 +60,12 @@ interface AdminPanelModalProps {
 export function AdminPanelModal({ isOpen, onClose }: AdminPanelModalProps) {
   const { user, isAdmin } = useAuth();
   
+  // Navigation Tabs
+  const [adminTab, setAdminTab] = useState<'users' | 'vip_claims'>('users');
+
   // Data state
   const [users, setUsers] = useState<UserProfile[]>([]);
+  const [vipClaims, setVipClaims] = useState<VipClaim[]>([]);
   const [stats, setStats] = useState<{ totalUsers: number; totalChats: number; totalMessages: number; onlineUsers: number }>({
     totalUsers: 0,
     totalChats: 0,
@@ -59,7 +74,7 @@ export function AdminPanelModal({ isOpen, onClose }: AdminPanelModalProps) {
   });
   const [loading, setLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
-  const [filterStatus, setFilterStatus] = useState<'all' | 'online' | 'banned' | 'admins'>('all');
+  const [filterStatus, setFilterStatus] = useState<'all' | 'online' | 'banned' | 'admins' | 'go'>('all');
 
   // Selected User for Detail View
   const [selectedUser, setSelectedUser] = useState<UserProfile | null>(null);
@@ -81,6 +96,9 @@ export function AdminPanelModal({ isOpen, onClose }: AdminPanelModalProps) {
   const [deleteTarget, setDeleteTarget] = useState<UserProfile | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
 
+  // Action in progress state (e.g. approve claim)
+  const [actionClaimId, setActionClaimId] = useState<string | null>(null);
+
   const [notification, setNotification] = useState<string | null>(null);
 
   const showNotification = (msg: string) => {
@@ -92,12 +110,14 @@ export function AdminPanelModal({ isOpen, onClose }: AdminPanelModalProps) {
     if (!isAdmin) return;
     setLoading(true);
     try {
-      const [fetchedUsers, fetchedStats] = await Promise.all([
+      const [fetchedUsers, fetchedStats, fetchedClaims] = await Promise.all([
         getAllUsersForAdmin(),
-        getAdminStats()
+        getAdminStats(),
+        getAllVipClaimsForAdmin()
       ]);
       setUsers(fetchedUsers);
       setStats(fetchedStats);
+      setVipClaims(fetchedClaims);
     } catch (error: any) {
       console.error("Admin load data error:", error);
       showNotification('Veriler yüklenirken bir hata oluştu.');
@@ -134,6 +154,7 @@ export function AdminPanelModal({ isOpen, onClose }: AdminPanelModalProps) {
       if (filterStatus === 'online') return isUserOnline(u);
       if (filterStatus === 'banned') return !!u.isBanned;
       if (filterStatus === 'admins') return u.role === 'admin' || u.email === 'lowai.official@gmail.com';
+      if (filterStatus === 'go') return u.plan === 'go';
 
       return true;
     });
@@ -173,6 +194,50 @@ export function AdminPanelModal({ isOpen, onClose }: AdminPanelModalProps) {
     navigator.clipboard.writeText(text);
     setCopiedMessageId(id);
     setTimeout(() => setCopiedMessageId(null), 2000);
+  };
+
+  const handleApproveClaim = async (claim: VipClaim) => {
+    setActionClaimId(claim.id);
+    try {
+      await approveVipClaim(claim.userId, user?.email || 'admin');
+      setVipClaims(prev => prev.map(c => c.id === claim.id ? { ...c, status: 'approved' } : c));
+      setUsers(prev => prev.map(u => u.uid === claim.userId ? { ...u, plan: 'go' } : u));
+      showNotification(`${claim.email || claim.displayName} kullanıcısının WnelAI Go üyeliği aktifleştirildi.`);
+    } catch (e: any) {
+      console.error(e);
+      showNotification('VIP onayı verilirken hata oluştu.');
+    } finally {
+      setActionClaimId(null);
+    }
+  };
+
+  const handleRejectClaim = async (claim: VipClaim) => {
+    setActionClaimId(claim.id);
+    try {
+      await rejectVipClaim(claim.userId, user?.email || 'admin');
+      setVipClaims(prev => prev.map(c => c.id === claim.id ? { ...c, status: 'rejected' } : c));
+      setUsers(prev => prev.map(u => u.uid === claim.userId ? { ...u, plan: 'free' } : u));
+      showNotification(`${claim.email || claim.displayName} başvurusu reddedildi.`);
+    } catch (e: any) {
+      console.error(e);
+      showNotification('VIP reddi sırasında hata oluştu.');
+    } finally {
+      setActionClaimId(null);
+    }
+  };
+
+  const handleSetUserPlan = async (targetUser: UserProfile, newPlan: 'free' | 'go') => {
+    try {
+      await setUserPlan(targetUser.uid, newPlan);
+      setUsers(prev => prev.map(u => u.uid === targetUser.uid ? { ...u, plan: newPlan } : u));
+      if (selectedUser && selectedUser.uid === targetUser.uid) {
+        setSelectedUser({ ...selectedUser, plan: newPlan });
+      }
+      showNotification(`${targetUser.displayName || targetUser.email} planı "${newPlan === 'go' ? 'WnelAI Go' : 'Free'}" olarak güncellendi.`);
+    } catch (e: any) {
+      console.error(e);
+      showNotification('Plan güncellenemedi.');
+    }
   };
 
   const handleConfirmBan = async () => {
@@ -337,207 +402,444 @@ export function AdminPanelModal({ isOpen, onClose }: AdminPanelModalProps) {
           </div>
 
           <div className="p-3 sm:p-4 rounded-xl sm:rounded-2xl bg-white/[0.03] border border-white/5 flex items-center gap-3">
-            <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-xl bg-cyan-500/10 border border-cyan-500/20 flex items-center justify-center text-cyan-400 shrink-0">
-              <MessageSquare className="w-4 h-4 sm:w-5 sm:h-5" />
+            <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-400 shrink-0">
+              <Rocket className="w-4 h-4 sm:w-5 sm:h-5" />
             </div>
             <div className="min-w-0">
-              <div className="text-[11px] sm:text-xs text-zinc-400 font-medium truncate">Toplam Mesaj</div>
-              <div className="text-base sm:text-xl font-bold text-white mt-0.5">{stats.totalMessages}</div>
+              <div className="text-[11px] sm:text-xs text-zinc-400 font-medium truncate">WnelAI Go Üye</div>
+              <div className="text-base sm:text-xl font-bold text-amber-400 mt-0.5">
+                {users.filter(u => u.plan === 'go').length}
+              </div>
             </div>
           </div>
         </div>
 
-        {/* Filter & Search Bar */}
-        <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5 px-4 sm:px-6 py-3 border-b border-white/5 bg-[#0e0e11]">
-          {/* Search */}
-          <div className="relative w-full sm:w-80">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500" />
-            <input
-              type="text"
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              placeholder="E-posta, isim, @kullanıcı veya UID..."
-              className="w-full bg-white/5 border border-white/10 rounded-xl pl-9 pr-4 py-2 text-xs text-white placeholder:text-zinc-500 focus:outline-none focus:border-blue-500 transition-all"
-            />
-          </div>
+        {/* Tab Navigation Bar */}
+        <div className="flex items-center gap-2 px-4 sm:px-6 pt-3 pb-2.5 border-b border-white/5 bg-[#101014]">
+          <button
+            onClick={() => setAdminTab('users')}
+            className={cn(
+              "px-3.5 py-2 rounded-xl text-xs sm:text-sm font-semibold transition-all flex items-center gap-2 cursor-pointer",
+              adminTab === 'users' 
+                ? "bg-blue-600/20 text-blue-300 border border-blue-500/40 shadow-sm" 
+                : "text-zinc-400 hover:text-white hover:bg-white/5"
+            )}
+          >
+            <Users className="w-4 h-4" />
+            <span>Kullanıcılar ({users.length})</span>
+          </button>
 
-          {/* Filter Pills */}
-          <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0 scrollbar-none">
-            <button
-              onClick={() => setFilterStatus('all')}
-              className={cn(
-                "px-3 py-1.5 rounded-lg text-xs font-medium transition-colors whitespace-nowrap cursor-pointer",
-                filterStatus === 'all' ? "bg-blue-600 text-white" : "bg-white/5 text-zinc-400 hover:text-white"
-              )}
-            >
-              Tümü ({users.length})
-            </button>
-            <button
-              onClick={() => setFilterStatus('online')}
-              className={cn(
-                "px-3 py-1.5 rounded-lg text-xs font-medium transition-colors whitespace-nowrap flex items-center gap-1.5 cursor-pointer",
-                filterStatus === 'online' ? "bg-green-600 text-white" : "bg-white/5 text-zinc-400 hover:text-white"
-              )}
-            >
-              <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
-              Çevrimiçi
-            </button>
-            <button
-              onClick={() => setFilterStatus('banned')}
-              className={cn(
-                "px-3 py-1.5 rounded-lg text-xs font-medium transition-colors whitespace-nowrap flex items-center gap-1.5 cursor-pointer",
-                filterStatus === 'banned' ? "bg-red-600 text-white" : "bg-white/5 text-zinc-400 hover:text-white"
-              )}
-            >
-              <Ban className="w-3 h-3" />
-              Yasaklı
-            </button>
-            <button
-              onClick={() => setFilterStatus('admins')}
-              className={cn(
-                "px-3 py-1.5 rounded-lg text-xs font-medium transition-colors whitespace-nowrap flex items-center gap-1.5 cursor-pointer",
-                filterStatus === 'admins' ? "bg-purple-600 text-white" : "bg-white/5 text-zinc-400 hover:text-white"
-              )}
-            >
-              <ShieldCheck className="w-3 h-3" />
-              Yöneticiler
-            </button>
-          </div>
+          <button
+            onClick={() => setAdminTab('vip_claims')}
+            className={cn(
+              "px-3.5 py-2 rounded-xl text-xs sm:text-sm font-semibold transition-all flex items-center gap-2 cursor-pointer relative",
+              adminTab === 'vip_claims' 
+                ? "bg-amber-500/20 text-amber-300 border border-amber-500/40 shadow-sm" 
+                : "text-zinc-400 hover:text-white hover:bg-white/5"
+            )}
+          >
+            <Rocket className="w-4 h-4 text-amber-400" />
+            <span>🎟️ WnelAI Go İstekleri</span>
+            <span className="text-[10px] bg-amber-500/30 text-amber-200 px-2 py-0.5 rounded-full font-mono font-bold">
+              {vipClaims.length} / 5
+            </span>
+          </button>
         </div>
 
-        {/* Main Users Table / List */}
-        <div className="flex-1 overflow-y-auto p-3 sm:p-5 scrollbar-thin scrollbar-thumb-white/10">
-          {filteredUsers.length === 0 ? (
-            <div className="h-64 flex flex-col items-center justify-center text-center text-zinc-500">
-              <Users className="w-10 h-10 mb-3 text-zinc-600" />
-              <p className="text-sm font-medium text-zinc-400">Kullanıcı bulunamadı</p>
-              <p className="text-xs text-zinc-600 mt-1">Arama kriterlerinizi değiştirerek tekrar deneyin.</p>
-            </div>
-          ) : (
-            <div className="space-y-2.5">
-              {filteredUsers.map((u) => {
-                const online = isUserOnline(u);
-                const isRootAdmin = u.email === 'lowai.official@gmail.com' || u.role === 'admin';
+        {/* TAB 1: USERS */}
+        {adminTab === 'users' && (
+          <>
+            {/* Filter & Search Bar */}
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5 px-4 sm:px-6 py-3 border-b border-white/5 bg-[#0e0e11]">
+              {/* Search */}
+              <div className="relative w-full sm:w-80">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500" />
+                <input
+                  type="text"
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  placeholder="E-posta, isim, @kullanıcı veya UID..."
+                  className="w-full bg-white/5 border border-white/10 rounded-xl pl-9 pr-4 py-2 text-xs text-white placeholder:text-zinc-500 focus:outline-none focus:border-blue-500 transition-all"
+                />
+              </div>
 
-                return (
-                  <div
-                    key={u.uid}
-                    className="p-3.5 sm:p-4 rounded-2xl bg-white/[0.02] hover:bg-white/[0.05] border border-white/5 transition-colors flex flex-col md:flex-row md:items-center justify-between gap-3 sm:gap-4"
-                  >
-                    {/* User info */}
-                    <div className="flex items-center gap-3 min-w-0">
-                      <div className="relative shrink-0">
-                        <div className="w-10 h-10 sm:w-11 sm:h-11 rounded-xl overflow-hidden bg-[#1a1a20] border border-white/10 flex items-center justify-center">
-                          {u.photoURL ? (
-                            <img src={u.photoURL} alt={u.displayName} className="w-full h-full object-cover" />
-                          ) : (
-                            <div className="w-full h-full bg-gradient-to-tr from-blue-600 to-indigo-600 flex items-center justify-center text-white font-bold text-sm">
-                              {u.displayName?.[0] || u.email?.[0] || 'U'}
+              {/* Filter Pills */}
+              <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0 scrollbar-none">
+                <button
+                  onClick={() => setFilterStatus('all')}
+                  className={cn(
+                    "px-3 py-1.5 rounded-lg text-xs font-medium transition-colors whitespace-nowrap cursor-pointer",
+                    filterStatus === 'all' ? "bg-blue-600 text-white" : "bg-white/5 text-zinc-400 hover:text-white"
+                  )}
+                >
+                  Tümü ({users.length})
+                </button>
+                <button
+                  onClick={() => setFilterStatus('go')}
+                  className={cn(
+                    "px-3 py-1.5 rounded-lg text-xs font-medium transition-colors whitespace-nowrap flex items-center gap-1.5 cursor-pointer",
+                    filterStatus === 'go' ? "bg-amber-500/30 text-amber-200 border border-amber-500/50" : "bg-white/5 text-zinc-400 hover:text-white"
+                  )}
+                >
+                  <Rocket className="w-3 h-3 text-amber-400" />
+                  WnelAI Go ({users.filter(u => u.plan === 'go').length})
+                </button>
+                <button
+                  onClick={() => setFilterStatus('online')}
+                  className={cn(
+                    "px-3 py-1.5 rounded-lg text-xs font-medium transition-colors whitespace-nowrap flex items-center gap-1.5 cursor-pointer",
+                    filterStatus === 'online' ? "bg-green-600 text-white" : "bg-white/5 text-zinc-400 hover:text-white"
+                  )}
+                >
+                  <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
+                  Çevrimiçi
+                </button>
+                <button
+                  onClick={() => setFilterStatus('banned')}
+                  className={cn(
+                    "px-3 py-1.5 rounded-lg text-xs font-medium transition-colors whitespace-nowrap flex items-center gap-1.5 cursor-pointer",
+                    filterStatus === 'banned' ? "bg-red-600 text-white" : "bg-white/5 text-zinc-400 hover:text-white"
+                  )}
+                >
+                  <Ban className="w-3 h-3" />
+                  Yasaklı
+                </button>
+                <button
+                  onClick={() => setFilterStatus('admins')}
+                  className={cn(
+                    "px-3 py-1.5 rounded-lg text-xs font-medium transition-colors whitespace-nowrap flex items-center gap-1.5 cursor-pointer",
+                    filterStatus === 'admins' ? "bg-purple-600 text-white" : "bg-white/5 text-zinc-400 hover:text-white"
+                  )}
+                >
+                  <ShieldCheck className="w-3 h-3" />
+                  Yöneticiler
+                </button>
+              </div>
+            </div>
+
+            {/* Main Users Table / List */}
+            <div className="flex-1 overflow-y-auto p-3 sm:p-5 scrollbar-thin scrollbar-thumb-white/10">
+              {loading && users.length === 0 ? (
+                <div className="h-64 flex flex-col items-center justify-center text-center text-zinc-400 gap-3">
+                  <RefreshCw className="w-8 h-8 animate-spin text-blue-500" />
+                  <p className="text-sm font-medium text-zinc-300">Yönetici paneli verileri yükleniyor...</p>
+                  <p className="text-xs text-zinc-500">Kullanıcı kayıtları ve istatistikler alınıyor.</p>
+                </div>
+              ) : filteredUsers.length === 0 ? (
+                <div className="h-64 flex flex-col items-center justify-center text-center text-zinc-500">
+                  <Users className="w-10 h-10 mb-3 text-zinc-600" />
+                  <p className="text-sm font-medium text-zinc-400">Kullanıcı bulunamadı</p>
+                  <p className="text-xs text-zinc-600 mt-1">Arama kriterlerinizi değiştirerek tekrar deneyin.</p>
+                </div>
+              ) : (
+                <div className="space-y-2.5">
+                  {filteredUsers.map((u) => {
+                    const online = isUserOnline(u);
+                    const isRootAdmin = u.email === 'lowai.official@gmail.com' || u.role === 'admin';
+                    const isGoUser = u.plan === 'go';
+
+                    return (
+                      <div
+                        key={u.uid}
+                        className="p-3.5 sm:p-4 rounded-2xl bg-white/[0.02] hover:bg-white/[0.05] border border-white/5 transition-colors flex flex-col md:flex-row md:items-center justify-between gap-3 sm:gap-4"
+                      >
+                        {/* User info */}
+                        <div className="flex items-center gap-3 min-w-0">
+                          <div className="relative shrink-0">
+                            <div className="w-10 h-10 sm:w-11 sm:h-11 rounded-xl overflow-hidden bg-[#1a1a20] border border-white/10 flex items-center justify-center">
+                              {u.photoURL ? (
+                                <img src={u.photoURL} alt={u.displayName} className="w-full h-full object-cover" />
+                              ) : (
+                                <div className="w-full h-full bg-gradient-to-tr from-blue-600 to-indigo-600 flex items-center justify-center text-white font-bold text-sm">
+                                  {u.displayName?.[0] || u.email?.[0] || 'U'}
+                                </div>
+                              )}
                             </div>
-                          )}
+                            {online && (
+                              <div className="absolute -bottom-0.5 -right-0.5 w-3 h-3 bg-green-500 rounded-full border-2 border-[#0f0f12]" title="Çevrimiçi" />
+                            )}
+                          </div>
+
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
+                              <span className="font-semibold text-white text-sm truncate">{u.displayName || 'İsimsiz Kullanıcı'}</span>
+                              {u.username && (
+                                <span className="text-[11px] sm:text-xs text-zinc-400 font-mono">@{u.username}</span>
+                              )}
+                              {isGoUser && (
+                                <GoBadge size="xs" />
+                              )}
+                              {isRootAdmin && (
+                                <span className="text-[10px] bg-purple-500/20 text-purple-400 font-semibold px-1.5 py-0.5 rounded border border-purple-500/30">
+                                  Admin
+                                </span>
+                              )}
+                              {u.isBanned && (
+                                <span className="text-[10px] bg-red-500/20 text-red-400 font-semibold px-1.5 py-0.5 rounded border border-red-500/30 flex items-center gap-1">
+                                  <Ban className="w-2.5 h-2.5" /> Yasaklı
+                                </span>
+                              )}
+                            </div>
+
+                            <div className="flex items-center gap-2 sm:gap-3 text-xs text-zinc-400 mt-1 flex-wrap">
+                              <span className="flex items-center gap-1 text-zinc-300 truncate max-w-[200px] sm:max-w-none">
+                                <Mail className="w-3 h-3 text-zinc-500 shrink-0" />
+                                <span className="truncate">{u.email}</span>
+                              </span>
+                              <span className="text-zinc-600 hidden sm:inline">•</span>
+                              <span className="font-mono text-[10px] sm:text-[11px] text-zinc-500 truncate max-w-[100px] sm:max-w-[140px]" title={u.uid}>
+                                UID: {u.uid}
+                              </span>
+                            </div>
+                          </div>
                         </div>
-                        {online && (
-                          <div className="absolute -bottom-0.5 -right-0.5 w-3 h-3 bg-green-500 rounded-full border-2 border-[#0f0f12]" title="Çevrimiçi" />
-                        )}
-                      </div>
 
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
-                          <span className="font-semibold text-white text-sm truncate">{u.displayName || 'İsimsiz Kullanıcı'}</span>
-                          {u.username && (
-                            <span className="text-[11px] sm:text-xs text-zinc-400 font-mono">@{u.username}</span>
-                          )}
-                          {isRootAdmin && (
-                            <span className="text-[10px] bg-purple-500/20 text-purple-400 font-semibold px-1.5 py-0.5 rounded border border-purple-500/30">
-                              Admin
-                            </span>
-                          )}
-                          {u.isBanned && (
-                            <span className="text-[10px] bg-red-500/20 text-red-400 font-semibold px-1.5 py-0.5 rounded border border-red-500/30 flex items-center gap-1">
-                              <Ban className="w-2.5 h-2.5" /> Yasaklı
-                            </span>
-                          )}
-                        </div>
-
-                        <div className="flex items-center gap-2 sm:gap-3 text-xs text-zinc-400 mt-1 flex-wrap">
-                          <span className="flex items-center gap-1 text-zinc-300 truncate max-w-[200px] sm:max-w-none">
-                            <Mail className="w-3 h-3 text-zinc-500 shrink-0" />
-                            <span className="truncate">{u.email}</span>
-                          </span>
-                          <span className="text-zinc-600 hidden sm:inline">•</span>
-                          <span className="font-mono text-[10px] sm:text-[11px] text-zinc-500 truncate max-w-[100px] sm:max-w-[140px]" title={u.uid}>
-                            UID: {u.uid}
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Actions */}
-                    <div className="flex items-center gap-2 shrink-0 pt-2 md:pt-0 border-t border-white/5 md:border-t-0 justify-between md:justify-end">
-                      <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
-                        {/* View Profile Detail */}
-                        <button
-                          onClick={() => setSelectedUser(u)}
-                          className="px-2.5 sm:px-3 py-1.5 bg-white/5 hover:bg-white/10 text-zinc-300 text-xs font-medium rounded-xl transition-colors border border-white/5 flex items-center gap-1.5 cursor-pointer"
-                          title="Profili Görüntüle"
-                        >
-                          <UserIcon className="w-3.5 h-3.5 text-blue-400" />
-                          <span>Profil</span>
-                        </button>
-
-                        {/* View Logs / Chats */}
-                        <button
-                          onClick={() => handleOpenLogs(u)}
-                          className="px-2.5 sm:px-3 py-1.5 bg-blue-600/15 hover:bg-blue-600/25 text-blue-400 text-xs font-semibold rounded-xl transition-colors border border-blue-500/30 flex items-center gap-1.5 cursor-pointer shadow-sm shadow-blue-500/10"
-                          title="Sohbet Logları"
-                        >
-                          <MessageSquare className="w-3.5 h-3.5" />
-                          <span>Sohbetler</span>
-                        </button>
-                      </div>
-
-                      <div className="flex items-center gap-1.5 sm:gap-2">
-                        {/* Ban / Unban Toggle */}
-                        {!isRootAdmin && (
-                          u.isBanned ? (
+                        {/* Actions */}
+                        <div className="flex items-center gap-2 shrink-0 pt-2 md:pt-0 border-t border-white/5 md:border-t-0 justify-between md:justify-end">
+                          <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
+                            {/* Plan Toggle Button */}
                             <button
-                              onClick={() => handleUnban(u)}
-                              className="px-2.5 sm:px-3 py-1.5 bg-green-500/10 hover:bg-green-500/20 text-green-400 text-xs font-medium rounded-xl transition-colors border border-green-500/20 flex items-center gap-1 cursor-pointer"
-                              title="Banı Kaldır"
+                              onClick={() => handleSetUserPlan(u, isGoUser ? 'free' : 'go')}
+                              className={cn(
+                                "px-2.5 sm:px-3 py-1.5 text-xs font-medium rounded-xl transition-colors border flex items-center gap-1.5 cursor-pointer",
+                                isGoUser
+                                  ? "bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border-amber-500/30"
+                                  : "bg-white/5 hover:bg-white/10 text-zinc-300 border-white/5"
+                              )}
+                              title={isGoUser ? "Free'ye Düşür" : "Go'ya Yükselt"}
                             >
-                              <CheckCircle className="w-3.5 h-3.5" />
-                              <span className="hidden sm:inline">Ban Kaldır</span>
+                              <Rocket className="w-3.5 h-3.5" />
+                              <span>{isGoUser ? 'Plan: Go' : 'Plan: Free'}</span>
                             </button>
-                          ) : (
-                            <button
-                              onClick={() => { setBanTarget(u); setBanReason('Topluluk kurallarına aykırı davranış'); }}
-                              className="px-2.5 sm:px-3 py-1.5 bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 text-xs font-medium rounded-xl transition-colors border border-amber-500/20 flex items-center gap-1 cursor-pointer"
-                              title="Kullanıcıyı Banla"
-                            >
-                              <Ban className="w-3.5 h-3.5" />
-                              <span className="hidden sm:inline">Banla</span>
-                            </button>
-                          )
-                        )}
 
-                        {/* Delete user */}
-                        {!isRootAdmin && (
-                          <button
-                            onClick={() => setDeleteTarget(u)}
-                            className="p-1.5 sm:p-2 bg-red-500/10 hover:bg-red-500/20 text-red-400 text-xs rounded-xl transition-colors border border-red-500/20 cursor-pointer"
-                            title="Kullanıcıyı Sil"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        )}
+                            {/* View Profile Detail */}
+                            <button
+                              onClick={() => setSelectedUser(u)}
+                              className="px-2.5 sm:px-3 py-1.5 bg-white/5 hover:bg-white/10 text-zinc-300 text-xs font-medium rounded-xl transition-colors border border-white/5 flex items-center gap-1.5 cursor-pointer"
+                              title="Profili Görüntüle"
+                            >
+                              <UserIcon className="w-3.5 h-3.5 text-blue-400" />
+                              <span>Profil</span>
+                            </button>
+
+                            {/* View Logs / Chats */}
+                            <button
+                              onClick={() => handleOpenLogs(u)}
+                              className="px-2.5 sm:px-3 py-1.5 bg-blue-600/15 hover:bg-blue-600/25 text-blue-400 text-xs font-semibold rounded-xl transition-colors border border-blue-500/30 flex items-center gap-1.5 cursor-pointer shadow-sm shadow-blue-500/10"
+                              title="Sohbet Logları"
+                            >
+                              <MessageSquare className="w-3.5 h-3.5" />
+                              <span>Sohbetler</span>
+                            </button>
+                          </div>
+
+                          <div className="flex items-center gap-1.5 sm:gap-2">
+                            {/* Ban / Unban Toggle */}
+                            {!isRootAdmin && (
+                              u.isBanned ? (
+                                <button
+                                  onClick={() => handleUnban(u)}
+                                  className="px-2.5 sm:px-3 py-1.5 bg-green-500/10 hover:bg-green-500/20 text-green-400 text-xs font-medium rounded-xl transition-colors border border-green-500/20 flex items-center gap-1 cursor-pointer"
+                                  title="Banı Kaldır"
+                                >
+                                  <CheckCircle className="w-3.5 h-3.5" />
+                                  <span className="hidden sm:inline">Ban Kaldır</span>
+                                </button>
+                              ) : (
+                                <button
+                                  onClick={() => { setBanTarget(u); setBanReason('Topluluk kurallarına aykırı davranış'); }}
+                                  className="px-2.5 sm:px-3 py-1.5 bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 text-xs font-medium rounded-xl transition-colors border border-amber-500/20 flex items-center gap-1 cursor-pointer"
+                                  title="Kullanıcıyı Banla"
+                                >
+                                  <Ban className="w-3.5 h-3.5" />
+                                  <span className="hidden sm:inline">Banla</span>
+                                </button>
+                              )
+                            )}
+
+                            {/* Delete user */}
+                            {!isRootAdmin && (
+                              <button
+                                onClick={() => setDeleteTarget(u)}
+                                className="p-1.5 sm:p-2 bg-red-500/10 hover:bg-red-500/20 text-red-400 text-xs rounded-xl transition-colors border border-red-500/20 cursor-pointer"
+                                title="Kullanıcıyı Sil"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+                          </div>
+                        </div>
                       </div>
-                    </div>
-                  </div>
-                );
-              })}
+                    );
+                  })}
+                </div>
+              )}
             </div>
-          )}
-        </div>
+          </>
+        )}
+
+        {/* TAB 2: VIP CLAIMS */}
+        {adminTab === 'vip_claims' && (
+          <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-4 scrollbar-thin scrollbar-thumb-white/10">
+            {/* VIP Info Banner */}
+            <div className="p-4 rounded-2xl bg-gradient-to-r from-amber-500/10 via-orange-500/10 to-amber-500/10 border border-amber-500/30 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-amber-500/20 border border-amber-500/30 flex items-center justify-center text-amber-300 shrink-0">
+                  <Sparkles className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-sm sm:text-base font-bold text-white flex items-center gap-2">
+                    <span>TikTok VIP Etkinliği Başvuru Takibi</span>
+                    <span className="text-xs bg-amber-500/20 text-amber-300 font-bold px-2 py-0.5 rounded border border-amber-500/40">
+                      5 Kişilik Kontenjan
+                    </span>
+                  </h3>
+                  <p className="text-xs text-zinc-400 mt-0.5">
+                    Kullanıcılar sohbette <code className="text-amber-300 font-mono">/claimvip</code> komutunu girdiğinde burada sırayla listelenir.
+                  </p>
+                </div>
+              </div>
+
+              <div className="text-left sm:text-right shrink-0 bg-black/30 p-2.5 rounded-xl border border-white/5">
+                <div className="text-xs text-zinc-400">Dolu Kontenjan</div>
+                <div className="text-base font-bold text-amber-300">
+                  {vipClaims.length} / 5 Kullanıcı
+                </div>
+              </div>
+            </div>
+
+            {/* Claims List */}
+            {vipClaims.length === 0 ? (
+              <div className="h-64 flex flex-col items-center justify-center text-center text-zinc-500">
+                <Rocket className="w-10 h-10 mb-3 text-zinc-600" />
+                <p className="text-sm font-medium text-zinc-400">Henüz VIP başvurusu bulunmuyor</p>
+                <p className="text-xs text-zinc-600 mt-1">Kullanıcılar <code className="text-amber-400">/claimvip</code> komutu ile başvurduğunda burada görünecektir.</p>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {vipClaims.map((claim) => {
+                  const isApproved = claim.status === 'approved';
+                  const isRejected = claim.status === 'rejected';
+                  const isPending = claim.status === 'pending';
+                  const isProcessing = actionClaimId === claim.id;
+
+                  const dateFormatted = (claim.createdAt as any)?.toMillis 
+                    ? new Date((claim.createdAt as any).toMillis()).toLocaleString('tr-TR')
+                    : 'Bilinmiyor';
+
+                  return (
+                    <div
+                      key={claim.id}
+                      className={cn(
+                        "p-4 rounded-2xl border transition-all flex flex-col md:flex-row md:items-center justify-between gap-4",
+                        isApproved
+                          ? "bg-amber-500/[0.04] border-amber-500/30"
+                          : isRejected
+                          ? "bg-red-500/[0.03] border-red-500/20"
+                          : "bg-white/[0.03] border-white/10 shadow-lg shadow-black/20"
+                      )}
+                    >
+                      {/* Left side: Order number and user info */}
+                      <div className="flex items-center gap-3.5 min-w-0">
+                        {/* Order Badge (#1, #2...) */}
+                        <div className={cn(
+                          "w-10 h-10 rounded-xl flex items-center justify-center font-bold text-sm shrink-0 border",
+                          isApproved 
+                            ? "bg-amber-500/20 border-amber-500/40 text-amber-300"
+                            : isRejected
+                            ? "bg-red-500/20 border-red-500/40 text-red-400"
+                            : "bg-blue-500/20 border-blue-500/40 text-blue-300"
+                        )}>
+                          #{claim.orderNumber}
+                        </div>
+
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="font-bold text-white text-sm truncate">
+                              {claim.displayName || 'İsimsiz Kullanıcı'}
+                            </span>
+                            {claim.username && (
+                              <span className="text-xs text-zinc-400 font-mono">@{claim.username}</span>
+                            )}
+                            {isApproved && <GoBadge size="xs" />}
+                          </div>
+
+                          <div className="flex items-center gap-2.5 text-xs text-zinc-400 mt-1 flex-wrap">
+                            <span className="flex items-center gap-1 text-zinc-300">
+                              <Mail className="w-3 h-3 text-zinc-500" />
+                              <span>{claim.email}</span>
+                            </span>
+                            <span className="text-zinc-600">•</span>
+                            <span className="flex items-center gap-1 text-zinc-400">
+                              <Clock className="w-3 h-3 text-zinc-500" />
+                              <span>{dateFormatted}</span>
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Right side: Status and Actions */}
+                      <div className="flex items-center gap-3 justify-between md:justify-end border-t border-white/5 md:border-t-0 pt-2 md:pt-0">
+                        {/* Status Chip */}
+                        <div className="flex items-center gap-1.5">
+                          {isApproved && (
+                            <span className="px-2.5 py-1 rounded-lg bg-green-500/20 text-green-300 border border-green-500/40 text-xs font-semibold flex items-center gap-1">
+                              <CheckCircle2 className="w-3.5 h-3.5" />
+                              <span>🟢 Aktif (Go)</span>
+                            </span>
+                          )}
+                          {isRejected && (
+                            <span className="px-2.5 py-1 rounded-lg bg-red-500/20 text-red-300 border border-red-500/40 text-xs font-semibold flex items-center gap-1">
+                              <XCircle className="w-3.5 h-3.5" />
+                              <span>🔴 Reddedildi</span>
+                            </span>
+                          )}
+                          {isPending && (
+                            <span className="px-2.5 py-1 rounded-lg bg-amber-500/20 text-amber-300 border border-amber-500/40 text-xs font-semibold flex items-center gap-1 animate-pulse">
+                              <Clock className="w-3.5 h-3.5" />
+                              <span>🟡 Onay Bekliyor</span>
+                            </span>
+                          )}
+                        </div>
+
+                        {/* Action Buttons */}
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => handleApproveClaim(claim)}
+                            disabled={isProcessing || isApproved}
+                            className={cn(
+                              "px-3 py-1.5 text-xs font-semibold rounded-xl transition-all flex items-center gap-1.5 cursor-pointer shadow-md",
+                              isApproved
+                                ? "bg-white/5 text-zinc-500 cursor-not-allowed border border-white/5"
+                                : "bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-black shadow-amber-500/20"
+                            )}
+                          >
+                            <Check className="w-3.5 h-3.5" />
+                            <span>{isApproved ? 'Onaylandı' : '✅ Aktifleştir'}</span>
+                          </button>
+
+                          <button
+                            onClick={() => handleRejectClaim(claim)}
+                            disabled={isProcessing || isRejected}
+                            className={cn(
+                              "px-3 py-1.5 text-xs font-semibold rounded-xl transition-all flex items-center gap-1.5 cursor-pointer",
+                              isRejected
+                                ? "bg-white/5 text-zinc-500 cursor-not-allowed border border-white/5"
+                                : "bg-red-500/15 hover:bg-red-500/25 text-red-300 border border-red-500/30"
+                            )}
+                          >
+                            <Ban className="w-3.5 h-3.5" />
+                            <span>Reddet</span>
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
 
         {/* ----------------- SUB-MODAL 1: USER PROFILE DETAIL ----------------- */}
         <AnimatePresence>

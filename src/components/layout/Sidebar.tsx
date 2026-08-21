@@ -24,6 +24,7 @@ import { cn } from '../../lib/utils';
 import { Chat, subscribeToUserChats, deleteChat, toggleChatPin, updateChatTitle } from '../../lib/firebase/firestore';
 import { useAuth } from '../../contexts/AuthContext';
 import { WnelLogo } from '../common/WnelLogo';
+import { GoBadge } from '../common/GoBadge';
 import { Model, AVAILABLE_MODELS } from '../../types';
 import { getLocalFormattedTime, formatRemainingTime } from '../../lib/thinkingCooldown';
 
@@ -438,11 +439,12 @@ export function Sidebar({
                   {profile?.displayName?.charAt(0).toUpperCase() || profile?.username?.charAt(0).toUpperCase() || 'U'}
                 </div>
                 <div className="flex-1 min-w-0 text-left">
-                  <div className="text-[14px] font-semibold text-zinc-200 truncate group-hover:text-white transition-colors">
-                    {profile?.displayName || profile?.username || 'Kullanıcı'}
+                  <div className="text-[14px] font-semibold text-zinc-200 truncate group-hover:text-white transition-colors flex items-center gap-1.5">
+                    <span className="truncate">{profile?.displayName || profile?.username || 'Kullanıcı'}</span>
+                    {profile?.plan === 'go' && <GoBadge size="sm" />}
                   </div>
                   <div className="text-[11px] text-zinc-500 truncate">
-                    Hesabı Yönet
+                    {profile?.plan === 'go' ? 'WnelAI Go Üyesi' : 'Hesabı Yönet'}
                   </div>
                 </div>
               </button>

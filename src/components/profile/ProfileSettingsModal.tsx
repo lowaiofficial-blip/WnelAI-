@@ -22,6 +22,8 @@ import {
 import { useAuth } from '../../contexts/AuthContext';
 import { cn } from '../../lib/utils';
 import { WnelLogo } from '../common/WnelLogo';
+import { GoBadge } from '../common/GoBadge';
+import { Rocket } from 'lucide-react';
 import { sendPasswordResetEmail, updatePassword, reauthenticateWithCredential, EmailAuthProvider } from 'firebase/auth';
 import { auth } from '../../lib/firebase/config';
 
@@ -29,6 +31,7 @@ interface ProfileSettingsModalProps {
   isOpen: boolean;
   onClose: () => void;
   initialTab?: 'profile' | 'account' | 'notifications' | 'appearance';
+  onOpenGoModal?: () => void;
 }
 
 const PRESET_AVATARS = [
@@ -39,8 +42,8 @@ const PRESET_AVATARS = [
   'https://images.unsplash.com/photo-1522075469751-3a6694fb2f61?w=150&auto=format&fit=crop&q=80',
 ];
 
-export function ProfileSettingsModal({ isOpen, onClose, initialTab = 'profile' }: ProfileSettingsModalProps) {
-  const { user, profile, updateProfileData, signOut, deleteAccount } = useAuth();
+export function ProfileSettingsModal({ isOpen, onClose, initialTab = 'profile', onOpenGoModal }: ProfileSettingsModalProps) {
+  const { user, profile, updateProfileData, signOut, deleteAccount, isGo } = useAuth();
   const [activeTab, setActiveTab] = useState<'profile' | 'account' | 'notifications' | 'appearance'>(initialTab);
 
   // Profile Form state
@@ -433,6 +436,58 @@ export function ProfileSettingsModal({ isOpen, onClose, initialTab = 'profile' }
                     <div className="text-right text-[11px] text-zinc-500 mt-1">
                       {bio.length}/250
                     </div>
+                  </div>
+
+                  {/* Plan / Membership Info Card */}
+                  <div className={cn(
+                    "p-4 rounded-2xl border transition-all flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3",
+                    isGo
+                      ? "bg-gradient-to-r from-amber-500/10 via-orange-500/10 to-amber-500/10 border-amber-500/30"
+                      : "bg-white/5 border-white/10"
+                  )}>
+                    <div className="flex items-center gap-3">
+                      <div className={cn(
+                        "w-10 h-10 rounded-xl flex items-center justify-center shrink-0 border",
+                        isGo ? "bg-amber-500/20 border-amber-500/30 text-amber-300" : "bg-white/10 border-white/10 text-zinc-300"
+                      )}>
+                        <Rocket className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs text-zinc-400 font-medium">Mevcut Üyelik Planı:</span>
+                          {isGo ? (
+                            <GoBadge size="sm" />
+                          ) : (
+                            <span className="text-xs bg-white/10 text-zinc-300 font-semibold px-2 py-0.5 rounded-md">
+                              WnelAI Free
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-xs text-zinc-400 mt-1">
+                          {isGo 
+                            ? "🚀 Sınırsız Hızlı Mod, 5x Düşünen Mod, Dosya Yükleme & Özel Rozet aktif."
+                            : "⚡ Hızlı mod ve 3 saatte 1 Düşünen mod kullanım hakkı."}
+                        </p>
+                      </div>
+                    </div>
+
+                    {onOpenGoModal && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          onClose();
+                          onOpenGoModal();
+                        }}
+                        className={cn(
+                          "px-3 py-1.5 rounded-xl text-xs font-semibold transition-all cursor-pointer whitespace-nowrap shrink-0",
+                          isGo
+                            ? "bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/30"
+                            : "bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-black shadow-md shadow-amber-500/20"
+                        )}
+                      >
+                        {isGo ? "Detayları Gör" : "WnelAI Go'ya Geç 🚀"}
+                      </button>
+                    )}
                   </div>
 
                   {/* Save Button */}

@@ -16,10 +16,43 @@
         "isBanned": { "type": "boolean" },
         "banReason": { "type": "string", "maxLength": 200 },
         "role": { "type": "string", "enum": ["user", "admin"] },
+        "plan": { "type": "string", "enum": ["free", "go"] },
         "thinkingCooldownUntil": { "type": "number" },
+        "thinkingUsesToday": { "type": "number" },
+        "thinkingLastUsedDate": { "type": "string" },
+        "chatCountToday": { "type": "number" },
+        "chatLastDate": { "type": "string" },
         "settings": { "type": "object" }
       },
       "required": ["email"]
+    },
+    "VipClaim": {
+      "title": "VipClaim",
+      "description": "TikTok VIP campaign application for first 5 users",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "email": { "type": "string" },
+        "displayName": { "type": "string" },
+        "username": { "type": "string" },
+        "orderNumber": { "type": "number" },
+        "status": { "type": "string", "enum": ["pending", "approved", "rejected"] },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "reviewedAt": { "type": "string", "format": "date-time" },
+        "reviewedBy": { "type": "string" }
+      },
+      "required": ["userId", "email", "orderNumber", "status"]
+    },
+    "VipCampaign": {
+      "title": "VipCampaign",
+      "description": "Campaign counter tracking atomic quota claims",
+      "type": "object",
+      "properties": {
+        "claimedCount": { "type": "number" },
+        "maxClaims": { "type": "number" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["claimedCount", "maxClaims"]
     },
     "Admin": {
       "title": "Admin",
@@ -74,6 +107,14 @@
     "/chats/{chatId}/messages/{messageId}": {
       "schema": "Message",
       "description": "Messages inside a chat"
+    },
+    "/vipClaims/{userId}": {
+      "schema": "VipClaim",
+      "description": "VIP campaign user applications"
+    },
+    "/vipCampaign/{campaignId}": {
+      "schema": "VipCampaign",
+      "description": "Campaign quota tracker"
     }
   }
 }

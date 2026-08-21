@@ -36,8 +36,25 @@ service cloud.firestore {
     match /users/{userId} {
       allow read: if isOwner(userId) || isAdmin();
       allow create: if isAuthenticated() && request.auth.uid == userId;
-      allow update: if isOwner(userId) || isAdmin();
+      allow update: if isAdmin() || (
+        isOwner(userId) && 
+        (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['role', 'plan', 'isBanned', 'banReason']))
+      );
       allow delete: if isOwner(userId) || isAdmin();
+    }
+
+    // VIP Claims collection
+    match /vipClaims/{userId} {
+      allow read: if isAuthenticated() && (request.auth.uid == userId || isAdmin());
+      allow list: if isAdmin();
+      allow create: if isAuthenticated() && request.auth.uid == userId && request.resource.data.status == 'pending';
+      allow update, delete: if isAdmin();
+    }
+
+    // VIP Campaign tracker
+    match /vipCampaign/{campaignId} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated();
     }
 
     // Chats collection

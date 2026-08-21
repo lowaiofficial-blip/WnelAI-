@@ -7,12 +7,21 @@ interface InputAreaProps {
   onSend: (message: string) => void;
   isLoading: boolean;
   thinkingCooldownUntil?: number;
+  isGo?: boolean;
+  onAttachClick?: () => void;
 }
 
-export function InputArea({ onSend, isLoading, thinkingCooldownUntil = 0 }: InputAreaProps) {
+export function InputArea({ 
+  onSend, 
+  isLoading, 
+  thinkingCooldownUntil = 0,
+  isGo = false,
+  onAttachClick
+}: InputAreaProps) {
   const [input, setInput] = useState('');
   const [isBannerDismissed, setIsBannerDismissed] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const isCooldownActive = thinkingCooldownUntil > Date.now();
   const istanbulTime = isCooldownActive ? getIstanbulFormattedTime(thinkingCooldownUntil) : '';
@@ -54,8 +63,29 @@ export function InputArea({ onSend, isLoading, thinkingCooldownUntil = 0 }: Inpu
     }
   };
 
+  const handlePlusClick = () => {
+    if (onAttachClick) {
+      onAttachClick();
+    } else if (isGo) {
+      fileInputRef.current?.click();
+    }
+  };
+
   return (
     <div className="w-full max-w-3xl mx-auto px-4 pb-4 sm:pb-6 pt-2">
+      {/* Hidden file input for Go users */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        className="hidden"
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          if (file) {
+            setInput(prev => prev ? `${prev} [Ekli Dosya: ${file.name}]` : `[Ekli Dosya: ${file.name}] `);
+          }
+        }}
+      />
+
       {/* Thinking Mode Cooldown Banner */}
       {isCooldownActive && !isBannerDismissed && (
         <div className="mb-2.5 bg-gradient-to-r from-amber-500/10 via-orange-500/10 to-amber-500/10 border border-amber-500/25 backdrop-blur-xl rounded-2xl px-3.5 py-2.5 flex items-center justify-between gap-3 shadow-lg shadow-amber-950/20 text-xs animate-in fade-in slide-in-from-bottom-2 duration-300">
@@ -91,6 +121,7 @@ export function InputArea({ onSend, isLoading, thinkingCooldownUntil = 0 }: Inpu
         <div className="flex items-center shrink-0 mb-0.5">
           <button 
             type="button"
+            onClick={handlePlusClick}
             className="w-10 h-10 flex items-center justify-center text-zinc-400 hover:text-white bg-white/5 hover:bg-white/10 active:scale-95 rounded-full transition-all cursor-pointer group"
             title="Dosya veya Görsel Ekle"
           >

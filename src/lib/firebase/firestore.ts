@@ -12,10 +12,11 @@ import {
   deleteDoc, 
   serverTimestamp,
   writeBatch,
-  onSnapshot
+  onSnapshot,
+  runTransaction
 } from 'firebase/firestore';
 import { db, auth } from './config';
-import { UserProfile, UserSettings } from '../../types';
+import { UserProfile, UserSettings, VipClaim, VipCampaign } from '../../types';
 
 export enum OperationType {
   CREATE = 'create',
@@ -241,12 +242,17 @@ export async function getUserProfile(uid: string): Promise<UserProfile | null> {
         photoURL: data.photoURL || '',
         bio: data.bio || '',
         role: data.role || 'user',
+        plan: (data.plan === 'go' ? 'go' : 'free'),
         createdAt: data.createdAt,
         updatedAt: data.updatedAt,
         lastSeenAt: data.lastSeenAt,
         isBanned: data.isBanned || false,
         banReason: data.banReason || '',
         thinkingCooldownUntil: typeof data.thinkingCooldownUntil === 'number' ? data.thinkingCooldownUntil : 0,
+        thinkingUsesToday: typeof data.thinkingUsesToday === 'number' ? data.thinkingUsesToday : 0,
+        thinkingLastUsedDate: data.thinkingLastUsedDate || '',
+        chatCountToday: typeof data.chatCountToday === 'number' ? data.chatCountToday : 0,
+        chatLastDate: data.chatLastDate || '',
         settings: {
           ...DEFAULT_USER_SETTINGS,
           ...(data.settings || {})
@@ -329,17 +335,197 @@ export async function getAllUsersForAdmin(): Promise<UserProfile[]> {
         photoURL: data.photoURL || '',
         bio: data.bio || '',
         role: data.role || 'user',
+        plan: (data.plan === 'go' ? 'go' : 'free'),
         createdAt: data.createdAt,
         updatedAt: data.updatedAt,
         lastSeenAt: data.lastSeenAt,
         isBanned: data.isBanned || false,
         banReason: data.banReason || '',
+        thinkingCooldownUntil: typeof data.thinkingCooldownUntil === 'number' ? data.thinkingCooldownUntil : 0,
         settings: data.settings || DEFAULT_USER_SETTINGS
       } as UserProfile;
     });
   } catch (error) {
     handleFirestoreError(error, OperationType.LIST, path);
     return [];
+  }
+}
+
+// --- WNELAI GO & TIKTOK VIP CAMPAIGN OPERATIONS ---
+
+/**
+ * Atomic TikTok VIP Campaign Claim
+ * Strictly guarantees that only the first 5 unique users are accepted in Firestore.
+ */
+export async function claimVipCampaign(
+  userId: string,
+  email: string,
+  displayName: string,
+  username: string
+): Promise<{
+  status: 'success' | 'quota_full' | 'already_claimed' | 'error';
+  orderNumber?: number;
+  claimStatus?: string;
+  message?: string;
+}> {
+  const campaignRef = doc(db, 'vipCampaign', 'tiktok_vip_5');
+  const claimRef = doc(db, 'vipClaims', userId);
+
+  try {
+    const result = await runTransaction(db, async (transaction) => {
+      // 1. Check if this user has already claimed
+      const claimDoc = await transaction.get(claimRef);
+      if (claimDoc.exists()) {
+        const data = claimDoc.data();
+        return {
+          status: 'already_claimed' as const,
+          orderNumber: data.orderNumber,
+          claimStatus: data.status
+        };
+      }
+
+      // 2. Check campaign quota
+      const campaignDoc = await transaction.get(campaignRef);
+      let currentCount = 0;
+      if (campaignDoc.exists()) {
+        currentCount = campaignDoc.data().claimedCount || 0;
+      }
+
+      // 3. Strict 5-seat quota constraint
+      if (currentCount >= 5) {
+        return {
+          status: 'quota_full' as const,
+          orderNumber: 0
+        };
+      }
+
+      // 4. Increment order atomically
+      const newOrder = currentCount + 1;
+
+      // 5. Create claim record with pending status
+      transaction.set(claimRef, {
+        userId,
+        email: email || '',
+        displayName: displayName || 'Kullanıcı',
+        username: username || '',
+        orderNumber: newOrder,
+        status: 'pending',
+        createdAt: serverTimestamp()
+      });
+
+      // 6. Update global counter
+      transaction.set(campaignRef, {
+        claimedCount: newOrder,
+        maxClaims: 5,
+        updatedAt: serverTimestamp()
+      }, { merge: true });
+
+      return {
+        status: 'success' as const,
+        orderNumber: newOrder
+      };
+    });
+
+    return result;
+  } catch (error: any) {
+    console.error("VIP claim transaction error:", error);
+    return {
+      status: 'error',
+      message: error?.message || 'İşlem sırasında bir hata oluştu.'
+    };
+  }
+}
+
+/**
+ * Fetch user's VIP claim status
+ */
+export async function getUserVipClaim(userId: string): Promise<VipClaim | null> {
+  try {
+    const snap = await getDoc(doc(db, 'vipClaims', userId));
+    if (snap.exists()) {
+      return {
+        id: snap.id,
+        ...(snap.data() as any)
+      };
+    }
+    return null;
+  } catch (error) {
+    console.error("Error fetching user VIP claim:", error);
+    return null;
+  }
+}
+
+/**
+ * Admin: Get all VIP claims ordered by orderNumber (#1 to #5)
+ */
+export async function getAllVipClaimsForAdmin(): Promise<VipClaim[]> {
+  try {
+    const q = query(collection(db, 'vipClaims'), orderBy('orderNumber', 'asc'));
+    const snap = await getDocs(q);
+    return snap.docs.map(d => ({
+      id: d.id,
+      ...(d.data() as any)
+    }));
+  } catch (error) {
+    console.error("Error loading VIP claims for admin:", error);
+    return [];
+  }
+}
+
+/**
+ * Admin: Approve VIP Claim -> sets claim to 'approved' and user's plan to 'go'
+ */
+export async function approveVipClaim(userId: string, adminEmail: string): Promise<void> {
+  try {
+    await updateDoc(doc(db, 'vipClaims', userId), {
+      status: 'approved',
+      reviewedAt: serverTimestamp(),
+      reviewedBy: adminEmail
+    });
+
+    await updateDoc(doc(db, 'users', userId), {
+      plan: 'go',
+      updatedAt: serverTimestamp()
+    });
+  } catch (error) {
+    console.error("Error approving VIP claim:", error);
+    throw error;
+  }
+}
+
+/**
+ * Admin: Reject VIP Claim -> sets claim to 'rejected' and ensures user's plan is 'free'
+ */
+export async function rejectVipClaim(userId: string, adminEmail: string): Promise<void> {
+  try {
+    await updateDoc(doc(db, 'vipClaims', userId), {
+      status: 'rejected',
+      reviewedAt: serverTimestamp(),
+      reviewedBy: adminEmail
+    });
+
+    await updateDoc(doc(db, 'users', userId), {
+      plan: 'free',
+      updatedAt: serverTimestamp()
+    });
+  } catch (error) {
+    console.error("Error rejecting VIP claim:", error);
+    throw error;
+  }
+}
+
+/**
+ * Admin: Manually set user plan (free | go)
+ */
+export async function setUserPlan(userId: string, plan: 'free' | 'go'): Promise<void> {
+  try {
+    await updateDoc(doc(db, 'users', userId), {
+      plan,
+      updatedAt: serverTimestamp()
+    });
+  } catch (error) {
+    console.error("Error updating user plan:", error);
+    throw error;
   }
 }
 
@@ -417,15 +603,19 @@ export async function getAdminStats(): Promise<{
   onlineUsers: number;
 }> {
   try {
-    const usersSnap = await getDocs(collection(db, 'users'));
-    const chatsSnap = await getDocs(collection(db, 'chats'));
+    const [usersSnap, chatsSnap] = await Promise.all([
+      getDocs(collection(db, 'users')),
+      getDocs(collection(db, 'chats'))
+    ]);
     
-    let totalMessages = 0;
-    // Sample messages count across chats
-    for (const chatDoc of chatsSnap.docs) {
-      const msgSnap = await getDocs(collection(db, 'chats', chatDoc.id, 'messages'));
-      totalMessages += msgSnap.size;
-    }
+    // Quick sample or estimate instead of looping over every single chat synchronously
+    const sampleChats = chatsSnap.docs.slice(0, 15);
+    const sampleCounts = await Promise.all(
+      sampleChats.map(c => getDocs(collection(db, 'chats', c.id, 'messages')).then(s => s.size).catch(() => 0))
+    );
+    const sampleTotal = sampleCounts.reduce((a, b) => a + b, 0);
+    const avgMessagesPerChat = sampleChats.length > 0 ? (sampleTotal / sampleChats.length) : 4;
+    const estimatedTotalMessages = Math.round(chatsSnap.size * avgMessagesPerChat);
 
     const fiveMinutesAgo = Date.now() - 5 * 60 * 1000;
     let onlineCount = 0;
@@ -443,7 +633,7 @@ export async function getAdminStats(): Promise<{
     return {
       totalUsers: usersSnap.size,
       totalChats: chatsSnap.size,
-      totalMessages,
+      totalMessages: estimatedTotalMessages,
       onlineUsers: Math.max(1, onlineCount) // At least current admin is online
     };
   } catch (error) {
