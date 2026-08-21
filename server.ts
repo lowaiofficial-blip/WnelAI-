@@ -7,22 +7,30 @@ import dotenv from 'dotenv';
 
 dotenv.config();
 
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
-const openrouterKey = process.env.OPENROUTER_API_KEY;
-const openrouter = openrouterKey ? new OpenAI({ 
-  baseURL: 'https://openrouter.ai/api/v1',
-  apiKey: openrouterKey,
-  defaultHeaders: {
-    'HTTP-Referer': 'https://wnelai.app',
-    'X-Title': 'WnelAI Assistant'
-  }
-}) : null;
+const getGeminiClient = (customKey?: string) => {
+  const key = customKey || process.env.GEMINI_API_KEY;
+  return key ? new GoogleGenAI({ apiKey: key }) : null;
+};
 
-const groqKey = process.env.GROQ_API_KEY;
-const groq = groqKey ? new OpenAI({
-  baseURL: 'https://api.groq.com/openai/v1',
-  apiKey: groqKey
-}) : null;
+const getOpenRouterClient = (customKey?: string) => {
+  const key = customKey || process.env.OPENROUTER_API_KEY;
+  return key ? new OpenAI({ 
+    baseURL: 'https://openrouter.ai/api/v1',
+    apiKey: key,
+    defaultHeaders: {
+      'HTTP-Referer': 'https://wnelai.app',
+      'X-Title': 'WnelAI Assistant'
+    }
+  }) : null;
+};
+
+const getGroqClient = (customKey?: string) => {
+  const key = customKey || process.env.GROQ_API_KEY;
+  return key ? new OpenAI({
+    baseURL: 'https://api.groq.com/openai/v1',
+    apiKey: key
+  }) : null;
+};
 
 const SYSTEM_PROMPT = `Sen WnelAI'sın, doğal, akıcı ve samimi Türkçe konuşan premium bir yapay zeka asistanısın.
 Bir arkadaş gibi sohbet et ama her zaman saygılı ve profesyonel kal.
@@ -80,23 +88,27 @@ async function startServer() {
     const testDeepSeekR1 = async () => {
       const start = Date.now();
       try {
-        if (groq && process.env.GROQ_API_KEY) {
-          await groq.chat.completions.create({
-            model: 'deepseek-r1-distill-llama-70b',
+        const groqClient = getGroqClient();
+        const openrouterClient = getOpenRouterClient();
+        const geminiClient = getGeminiClient();
+
+        if (groqClient) {
+          await groqClient.chat.completions.create({
+            model: 'llama3-70b-8192',
             messages: [{ role: 'user', content: 'ping' }],
             max_tokens: 5
           });
           return { name: 'Düşünen Mod (DeepSeek-R1)', status: 'Normal', latencyMs: Date.now() - start, provider: 'Groq LPU' };
-        } else if (openrouter && process.env.OPENROUTER_API_KEY) {
-          await openrouter.chat.completions.create({
-            model: 'deepseek/deepseek-r1',
+        } else if (openrouterClient) {
+          await openrouterClient.chat.completions.create({
+            model: 'deepseek/deepseek-r1:free',
             messages: [{ role: 'user', content: 'ping' }],
             max_tokens: 5
           });
           return { name: 'Düşünen Mod (DeepSeek-R1)', status: 'Normal', latencyMs: Date.now() - start, provider: 'OpenRouter' };
-        } else if (process.env.GEMINI_API_KEY) {
-          await ai.models.generateContent({
-            model: 'gemini-3.7-flash',
+        } else if (geminiClient) {
+          await geminiClient.models.generateContent({
+            model: 'gemini-3.6-flash',
             contents: 'ping',
             config: { maxOutputTokens: 5 }
           });
@@ -111,23 +123,27 @@ async function startServer() {
     const testQwenPlus = async () => {
       const start = Date.now();
       try {
-        if (groq && process.env.GROQ_API_KEY) {
-          await groq.chat.completions.create({
-            model: 'llama-3.3-70b-versatile',
+        const groqClient = getGroqClient();
+        const openrouterClient = getOpenRouterClient();
+        const geminiClient = getGeminiClient();
+
+        if (groqClient) {
+          await groqClient.chat.completions.create({
+            model: 'llama3-8b-8192',
             messages: [{ role: 'user', content: 'ping' }],
             max_tokens: 5
           });
           return { name: 'Hızlı Mod (Qwen Plus)', status: 'Normal', latencyMs: Date.now() - start, provider: 'Groq LPU' };
-        } else if (openrouter && process.env.OPENROUTER_API_KEY) {
-          await openrouter.chat.completions.create({
-            model: 'qwen/qwen-plus',
+        } else if (openrouterClient) {
+          await openrouterClient.chat.completions.create({
+            model: 'openrouter/free',
             messages: [{ role: 'user', content: 'ping' }],
             max_tokens: 5
           });
           return { name: 'Hızlı Mod (Qwen Plus)', status: 'Normal', latencyMs: Date.now() - start, provider: 'OpenRouter' };
-        } else if (process.env.GEMINI_API_KEY) {
-          await ai.models.generateContent({
-            model: 'gemini-3.7-flash',
+        } else if (geminiClient) {
+          await geminiClient.models.generateContent({
+            model: 'gemini-3.6-flash',
             contents: 'ping',
             config: { maxOutputTokens: 5 }
           });
@@ -258,15 +274,24 @@ async function startServer() {
 
       let streamSuccess = false;
       let streamedAnyChunks = false;
+      let lastErrors: string[] = [];
 
-      // 1. Try Groq if GROQ_API_KEY is configured (Ultra-fast LPU inference)
-      if (!streamSuccess && groq && process.env.GROQ_API_KEY) {
+      const userGroqKey = (req.headers['x-groq-api-key'] as string) || '';
+      const userOpenRouterKey = (req.headers['x-openrouter-api-key'] as string) || '';
+      const userGeminiKey = (req.headers['x-gemini-api-key'] as string) || '';
+
+      const activeGroq = getGroqClient(userGroqKey);
+      const activeOpenRouter = getOpenRouterClient(userOpenRouterKey);
+      const activeGemini = getGeminiClient(userGeminiKey);
+
+      // 1. Try Groq if configured (Ultra-fast LPU inference)
+      if (!streamSuccess && activeGroq) {
         try {
           const groqModel = isDeepThinking 
-            ? 'deepseek-r1-distill-llama-70b' 
-            : 'llama-3.3-70b-versatile';
+            ? 'llama3-70b-8192' 
+            : 'llama3-8b-8192';
 
-          const stream = await groq.chat.completions.create({
+          const stream = await activeGroq.chat.completions.create({
             model: groqModel,
             messages: [
               { role: 'system' as const, content: SYSTEM_PROMPT },
@@ -288,16 +313,19 @@ async function startServer() {
           }
           streamSuccess = true;
         } catch (groqErr: any) {
+          lastErrors.push(`Groq: ${groqErr?.message || 'Error'}`);
           console.warn('Groq stream encountered error, trying next provider:', groqErr?.message || groqErr);
         }
+      } else if (!activeGroq) {
+        lastErrors.push(`Groq: No Client (Key missing)`);
       }
 
-      // 2. Try OpenRouter (DeepSeek R1 / Qwen Plus) if key is present
-      if (!streamSuccess && !streamedAnyChunks && openrouter && process.env.OPENROUTER_API_KEY) {
+      // 2. Try OpenRouter (DeepSeek R1 / Qwen Plus) if client is active
+      if (!streamSuccess && !streamedAnyChunks && activeOpenRouter) {
         try {
-          let openrouterModel = isDeepThinking ? 'deepseek/deepseek-r1' : 'qwen/qwen-plus';
+          let openrouterModel = isDeepThinking ? 'deepseek/deepseek-r1:free' : 'openrouter/free';
           
-          const stream = await openrouter.chat.completions.create({
+          const stream = await activeOpenRouter.chat.completions.create({
             model: openrouterModel,
             messages: [
               { role: 'system' as const, content: SYSTEM_PROMPT },
@@ -319,21 +347,24 @@ async function startServer() {
           }
           streamSuccess = true;
         } catch (openrouterErr: any) {
+          lastErrors.push(`OpenRouter: ${openrouterErr?.message || 'Error'}`);
           console.warn('OpenRouter stream encountered error:', openrouterErr?.message || openrouterErr);
         }
+      } else if (!activeOpenRouter) {
+        lastErrors.push(`OpenRouter: No Client (Key missing)`);
       }
 
-      // 3. Fallback to Gemini (gemini-3.7-flash)
-      if (!streamSuccess && !streamedAnyChunks && process.env.GEMINI_API_KEY) {
+      // 3. Fallback to Gemini (gemini-3.6-flash)
+      if (!streamSuccess && !streamedAnyChunks && activeGemini) {
         try {
-          const geminiModel = 'gemini-3.7-flash';
+          const geminiModel = 'gemini-3.6-flash';
 
           const formattedContents = cleanMessages.map((m: any) => ({
             role: m.role === 'user' ? 'user' : 'model',
             parts: [{ text: m.content }]
           }));
 
-          const responseStream = await ai.models.generateContentStream({
+          const responseStream = await activeGemini.models.generateContentStream({
             model: geminiModel,
             contents: formattedContents,
             config: {
@@ -349,12 +380,15 @@ async function startServer() {
           }
           streamSuccess = true;
         } catch (geminiErr: any) {
+          lastErrors.push(`Gemini: ${geminiErr?.message || 'Error'}`);
           console.error('Gemini fallback stream error:', geminiErr?.message || geminiErr);
         }
+      } else if (!activeGemini) {
+        lastErrors.push(`Gemini: No Client (Key missing)`);
       }
 
       if (!streamSuccess && !streamedAnyChunks) {
-        res.write(`data: ${JSON.stringify({ text: '\n\n*(Model yanıt veremedi. Lütfen Settings menüsünden GEMINI_API_KEY veya OPENROUTER_API_KEY anahtarınızı kontrol edin.)*' })}\n\n`);
+        res.write(`data: ${JSON.stringify({ text: '\n\n*(Model yanıt veremedi. Hata Detayları: ' + lastErrors.join(', ') + ')*' })}\n\n`);
       }
 
       res.write('data: [DONE]\n\n');
@@ -406,11 +440,28 @@ ${messages.slice(0, 4).map((m: any) => `${m.role === 'user' ? 'Kullanıcı' : 'A
 
       let title = '';
 
-      // 1. Try Groq if key exists
-      if (groq && process.env.GROQ_API_KEY) {
+      const groqClient = getGroqClient();
+      const geminiClient = getGeminiClient();
+      const openrouterClient = getOpenRouterClient();
+
+      // 1. Try Gemini (Prioritized for title generation)
+      if (geminiClient) {
         try {
-          const completion = await groq.chat.completions.create({
-            model: 'llama-3.3-70b-versatile',
+          const response = await geminiClient.models.generateContent({
+            model: 'gemini-3.6-flash',
+            contents: prompt
+          });
+          title = response.text?.trim() || '';
+        } catch (geminiErr: any) {
+          console.warn('Gemini title generation fallback:', geminiErr?.message || geminiErr);
+        }
+      }
+
+      // 2. Try Groq if Gemini failed or is missing
+      if (!title && groqClient) {
+        try {
+          const completion = await groqClient.chat.completions.create({
+            model: 'llama3-8b-8192',
             messages: [
               { role: 'user', content: prompt }
             ],
@@ -423,24 +474,11 @@ ${messages.slice(0, 4).map((m: any) => `${m.role === 'user' ? 'Kullanıcı' : 'A
         }
       }
 
-      // 2. Try Gemini (if key exists and title not yet created)
-      if (!title && process.env.GEMINI_API_KEY) {
-        try {
-          const response = await ai.models.generateContent({
-            model: 'gemini-3.7-flash',
-            contents: prompt
-          });
-          title = response.text?.trim() || '';
-        } catch (geminiErr: any) {
-          console.warn('Gemini title generation fallback:', geminiErr?.message || geminiErr);
-        }
-      }
-
       // 3. Try OpenRouter if previous failed
-      if (!title && openrouter) {
+      if (!title && openrouterClient) {
         try {
-          const completion = await openrouter.chat.completions.create({
-            model: 'qwen/qwen-plus',
+          const completion = await openrouterClient.chat.completions.create({
+            model: 'openrouter/free',
             messages: [
               { role: 'user', content: prompt }
             ],
