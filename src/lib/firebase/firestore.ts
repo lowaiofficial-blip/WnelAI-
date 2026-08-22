@@ -807,57 +807,33 @@ export async function requestEmailVerificationCode(params: {
 }> {
   try {
     const { userId, email, displayName, username } = params;
-    const now = Date.now();
-    const expiresAt = now + (10 * 60 * 1000); // 10 minutes
-    const code = Math.floor(1000 + Math.random() * 9000).toString();
     const cleanEmail = email.trim().toLowerCase();
     const name = displayName || username || cleanEmail.split('@')[0] || 'Kullanıcı';
 
-    // 1. Direct Firestore write: Store in /emailVerifications/{userId}
-    await setDoc(doc(db, 'emailVerifications', userId), {
-      userId,
-      email: cleanEmail,
-      displayName: name,
-      username: username || cleanEmail.split('@')[0] || 'kullanici',
-      code,
-      createdAt: new Date().toISOString(),
-      expiresAt,
-      attempts: 0,
-      maxAttempts: 5,
-      isUsed: false,
-      status: 'pending'
-    }, { merge: true });
-
-    // 2. Direct Firestore write: Trigger Firebase Mail Extension (/mail collection)
-    const htmlContent = getAdminVerificationEmailHtml({
-      email: cleanEmail,
-      displayName: name,
-      code
-    });
-
-    await addDoc(collection(db, 'mail'), {
-      to: 'golabsdestek@outlook.com',
-      message: {
-        subject: `WnelAI Verification: ${code} (${cleanEmail})`,
-        text: `WnelAI Yeni Doğrulama İsteği\n\nKullanıcı E-postası: ${cleanEmail}\nKullanıcı Adı: ${name}\nDoğrulama Kodu: ${code}\n\nGeçerlilik: 10 dakika`,
-        html: htmlContent,
-      },
-      createdAt: new Date().toISOString()
-    }).catch(err => {
-      console.warn("Firebase mail trigger write note:", err?.message || err);
-    });
-
-    // 3. Also notify server endpoint to ensure synchronization
-    fetch('/api/send-verification-code', {
+    const res = await fetch('/api/send-verification-code', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ userId, email: cleanEmail, displayName: name, username, code, expiresAt }),
-    }).catch(() => {});
+      body: JSON.stringify({
+        userId,
+        email: cleanEmail,
+        displayName: name,
+        username: username || cleanEmail.split('@')[0],
+      }),
+    });
+
+    const data = await res.json();
+
+    if (!res.ok || !data.success) {
+      return {
+        success: false,
+        message: data.error || data.message || 'Doğrulama kodu gönderilemedi.'
+      };
+    }
 
     return {
       success: true,
-      message: '4 haneli doğrulama kodu oluşturuldu ve yetkili admin destek birimine (golabsdestek@outlook.com) iletildi.',
-      expiresAt
+      message: data.message || '4 haneli doğrulama kodu oluşturuldu ve yetkili admin destek birimine (golabsdestek@outlook.com) iletildi.',
+      expiresAt: data.expiresAt
     };
   } catch (error: any) {
     console.error("Error requesting verification code:", error);
@@ -880,90 +856,26 @@ export async function verifyEmailCode(params: {
     const { userId, code } = params;
     const inputCode = String(code).trim();
 
-    // 1. Check Firestore document first
-    const verificationRef = doc(db, 'emailVerifications', userId);
-    const snap = await getDoc(verificationRef);
-
-    if (snap.exists()) {
-      const data = snap.data();
-      const now = Date.now();
-
-      if (data.isUsed) {
-        return {
-          success: false,
-          message: 'Bu kod zaten kullanılmış veya geçersiz. Lütfen yeni bir kod isteyin.'
-        };
-      }
-
-      if (now > (data.expiresAt || 0)) {
-        await updateDoc(verificationRef, { status: 'expired', isUsed: true });
-        return {
-          success: false,
-          message: 'Bu doğrulama kodunun 10 dakikalık süresi doldu. Lütfen yeni bir kod isteyin.'
-        };
-      }
-
-      if ((data.attempts || 0) >= (data.maxAttempts || 5)) {
-        await updateDoc(verificationRef, { status: 'failed', isUsed: true });
-        return {
-          success: false,
-          message: '5 hatalı deneme yapıldığı için kod iptal edildi. Lütfen yeni kod isteyin.',
-          remainingAttempts: 0
-        };
-      }
-
-      if (data.code !== inputCode) {
-        const newAttempts = (data.attempts || 0) + 1;
-        const maxAttempts = data.maxAttempts || 5;
-        const remaining = Math.max(0, maxAttempts - newAttempts);
-
-        await updateDoc(verificationRef, {
-          attempts: newAttempts,
-          ...(remaining <= 0 ? { isUsed: true, status: 'failed' } : {})
-        });
-
-        return {
-          success: false,
-          message: remaining > 0 
-            ? `Hatalı doğrulama kodu. Kalan deneme hakkı: ${remaining}` 
-            : '5 kez hatalı kod girildiği için kod iptal edildi. Lütfen yeni bir kod isteyin.',
-          remainingAttempts: remaining
-        };
-      }
-
-      // Successful verification!
-      await updateDoc(verificationRef, {
-        isUsed: true,
-        status: 'verified',
-        verifiedAt: new Date().toISOString()
-      });
-
-      // Update user document
-      await updateUserProfile(userId, {
-        isEmailVerified: true
-      });
-
-      return {
-        success: true,
-        message: 'E-posta adresiniz başarıyla doğrulandı!'
-      };
-    }
-
-    // Fallback to server endpoint if local document not found
     const res = await fetch('/api/verify-code', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(params),
+      body: JSON.stringify({
+        userId,
+        code: inputCode
+      }),
     });
+
     const data = await res.json();
-    if (!res.ok) {
+
+    if (!res.ok || !data.success) {
       return {
         success: false,
-        message: data.error || 'Doğrulama başarısız oldu.',
+        message: data.error || data.message || 'Hatalı doğrulama kodu.',
         remainingAttempts: data.remainingAttempts
       };
     }
 
+    // Update user profile in Firestore
     await updateUserProfile(userId, {
       isEmailVerified: true
     });
