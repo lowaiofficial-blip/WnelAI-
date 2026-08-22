@@ -5,15 +5,14 @@ export function TypingAnimation() {
   return (
     <div className="flex w-full justify-start py-2 px-1 select-none">
       <div className="flex items-center gap-3 py-1">
-        {/* ChatGPT style breathing/pulsing white dot */}
+        {/* Solid white dot scaling up and down naturally without glow */}
         <motion.div
-          className="w-3.5 h-3.5 rounded-full bg-white shadow-[0_0_12px_rgba(255,255,255,0.9)]"
+          className="w-3.5 h-3.5 rounded-full bg-white"
           animate={{
-            scale: [0.85, 1.35, 0.85],
-            opacity: [0.4, 1, 0.4],
+            scale: [0.75, 1.25, 0.75],
           }}
           transition={{
-            duration: 1.2,
+            duration: 1.1,
             repeat: Infinity,
             ease: "easeInOut",
           }}

@@ -111,6 +111,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               isBanned: !!data.isBanned,
               banReason: data.banReason || '',
               thinkingCooldownUntil: typeof data.thinkingCooldownUntil === 'number' ? data.thinkingCooldownUntil : 0,
+              thinkingUsesToday: typeof data.thinkingUsesToday === 'number' ? data.thinkingUsesToday : 0,
+              thinkingLastUsedDate: data.thinkingLastUsedDate || '',
+              chatCountToday: typeof data.chatCountToday === 'number' ? data.chatCountToday : 0,
+              chatLastDate: data.chatLastDate || '',
+              voiceSecondsUsedToday: typeof data.voiceSecondsUsedToday === 'number' ? data.voiceSecondsUsedToday : 0,
+              voiceLastUsedDate: data.voiceLastUsedDate || '',
               settings: {
                 ...DEFAULT_USER_SETTINGS,
                 ...(data.settings || {})

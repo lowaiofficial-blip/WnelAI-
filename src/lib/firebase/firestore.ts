@@ -253,6 +253,8 @@ export async function getUserProfile(uid: string): Promise<UserProfile | null> {
         thinkingLastUsedDate: data.thinkingLastUsedDate || '',
         chatCountToday: typeof data.chatCountToday === 'number' ? data.chatCountToday : 0,
         chatLastDate: data.chatLastDate || '',
+        voiceSecondsUsedToday: typeof data.voiceSecondsUsedToday === 'number' ? data.voiceSecondsUsedToday : 0,
+        voiceLastUsedDate: data.voiceLastUsedDate || '',
         settings: {
           ...DEFAULT_USER_SETTINGS,
           ...(data.settings || {})
@@ -263,6 +265,65 @@ export async function getUserProfile(uid: string): Promise<UserProfile | null> {
   } catch (error) {
     handleFirestoreError(error, OperationType.GET, path);
     return null;
+  }
+}
+
+/**
+ * Atomically record Voice AI conversation duration in Firestore.
+ * Automatically performs daily reset if a new calendar day has started.
+ */
+export async function recordVoiceUsageInDb(
+  uid: string,
+  deltaSeconds: number,
+  plan: 'free' | 'go' = 'free'
+): Promise<{
+  usedSeconds: number;
+  remainingSeconds: number;
+  limitSeconds: number;
+  allowed: boolean;
+}> {
+  const path = `users/${uid}`;
+  const limitSeconds = plan === 'go' ? 3600 : 300;
+  const today = new Date().toISOString().slice(0, 10);
+  const safeDelta = Math.max(0, Math.round(deltaSeconds));
+
+  try {
+    const userDocRef = doc(db, 'users', uid);
+    const snap = await getDoc(userDocRef);
+
+    let currentUsed = 0;
+    if (snap.exists()) {
+      const data = snap.data();
+      if (data.voiceLastUsedDate === today) {
+        currentUsed = typeof data.voiceSecondsUsedToday === 'number' ? data.voiceSecondsUsedToday : 0;
+      }
+    }
+
+    const updatedUsed = currentUsed + safeDelta;
+    const remainingSeconds = Math.max(0, limitSeconds - updatedUsed);
+    const allowed = remainingSeconds > 0;
+
+    await setDoc(userDocRef, {
+      voiceSecondsUsedToday: updatedUsed,
+      voiceLastUsedDate: today,
+      updatedAt: serverTimestamp()
+    }, { merge: true });
+
+    return {
+      usedSeconds: updatedUsed,
+      remainingSeconds,
+      limitSeconds,
+      allowed
+    };
+  } catch (error) {
+    console.error("Failed to record voice usage in Firestore:", error);
+    // Non-blocking fallback
+    return {
+      usedSeconds: safeDelta,
+      remainingSeconds: Math.max(0, limitSeconds - safeDelta),
+      limitSeconds,
+      allowed: limitSeconds > safeDelta
+    };
   }
 }
 

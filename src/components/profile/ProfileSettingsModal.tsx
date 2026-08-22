@@ -17,7 +17,9 @@ import {
   Volume2,
   Mail,
   AtSign,
-  AlertCircle
+  AlertCircle,
+  Mic,
+  Clock
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { cn } from '../../lib/utils';
@@ -26,6 +28,7 @@ import { GoBadge } from '../common/GoBadge';
 import { Rocket } from 'lucide-react';
 import { sendPasswordResetEmail, updatePassword, reauthenticateWithCredential, EmailAuthProvider } from 'firebase/auth';
 import { auth } from '../../lib/firebase/config';
+import { getVoiceUsageStatus } from '../../lib/usageLimits';
 
 interface ProfileSettingsModalProps {
   isOpen: boolean;
@@ -489,6 +492,55 @@ export function ProfileSettingsModal({ isOpen, onClose, initialTab = 'profile', 
                       </button>
                     )}
                   </div>
+
+                  {/* Voice AI Usage Status Card */}
+                  {(() => {
+                    const voiceStatus = getVoiceUsageStatus(profile, isGo ? 'go' : 'free', user?.uid);
+                    const percentUsed = Math.min(100, Math.round((voiceStatus.usedSeconds / voiceStatus.limitSeconds) * 100));
+
+                    return (
+                      <div className="p-4 rounded-2xl bg-white/[0.04] border border-white/5 space-y-3">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2.5">
+                            <div className="w-8 h-8 rounded-xl bg-sky-500/15 border border-sky-500/30 flex items-center justify-center text-sky-400">
+                              <Mic className="w-4 h-4" />
+                            </div>
+                            <div>
+                              <h4 className="text-xs font-semibold text-white flex items-center gap-1.5">
+                                <span>🎙️ Sesli Konuşma</span>
+                                {isGo ? (
+                                  <span className="text-[10px] bg-sky-500/20 text-sky-300 font-semibold px-1.5 py-0.2 rounded">60 dk / gün</span>
+                                ) : (
+                                  <span className="text-[10px] bg-white/10 text-zinc-400 font-semibold px-1.5 py-0.2 rounded">5 dk / gün</span>
+                                )}
+                              </h4>
+                              <p className="text-[11px] text-zinc-400 mt-0.5">Sesli AI konuşma süresi</p>
+                            </div>
+                          </div>
+
+                          <div className="text-right">
+                            <div className="text-xs font-mono font-bold text-white">
+                              Kalan: <span className={voiceStatus.remainingSeconds <= 30 ? "text-red-400" : "text-sky-400"}>{voiceStatus.formattedRemaining}</span>
+                            </div>
+                            <div className="text-[10px] font-mono text-zinc-500">
+                              Bugün kullanılan: {voiceStatus.formattedUsed}
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Progress Bar */}
+                        <div className="w-full bg-white/5 rounded-full h-1.5 overflow-hidden border border-white/5">
+                          <div 
+                            className={cn(
+                              "h-full rounded-full transition-all duration-500",
+                              voiceStatus.remainingSeconds <= 30 ? "bg-red-500" : isGo ? "bg-gradient-to-r from-sky-500 to-indigo-500" : "bg-sky-500"
+                            )}
+                            style={{ width: `${percentUsed}%` }}
+                          />
+                        </div>
+                      </div>
+                    );
+                  })()}
 
                   {/* Save Button */}
                   <div className="flex justify-end pt-2">

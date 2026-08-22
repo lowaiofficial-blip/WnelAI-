@@ -40,6 +40,8 @@ export interface UserProfile {
   thinkingLastUsedDate?: string;
   chatCountToday?: number;
   chatLastDate?: string;
+  voiceSecondsUsedToday?: number;
+  voiceLastUsedDate?: string;
   settings?: UserSettings;
 }
 

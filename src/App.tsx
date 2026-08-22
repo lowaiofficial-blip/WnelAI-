@@ -6,7 +6,23 @@ import { InputArea } from './components/chat/InputArea';
 import { ThinkingAnimation } from './components/chat/ThinkingAnimation';
 import { TypingAnimation } from './components/chat/TypingAnimation';
 import { Message, Model, AVAILABLE_MODELS } from './types';
-import { Loader2, Ban, LogIn, UserPlus, Sparkles, Mail, ArrowDown, Clock, Lock, AlertCircle, X } from 'lucide-react';
+import { 
+  Loader2, 
+  Ban, 
+  LogIn, 
+  UserPlus, 
+  Sparkles, 
+  Mail, 
+  ArrowDown, 
+  Clock, 
+  Lock, 
+  AlertCircle, 
+  X,
+  Image as ImageIcon,
+  PenLine,
+  Globe,
+  Code2
+} from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { useAuth } from './contexts/AuthContext';
 import { createChat, addMessageToChat, getChatMessages, updateChatTitle, claimVipCampaign } from './lib/firebase/firestore';
@@ -15,6 +31,8 @@ import { WnelGoModal } from './components/common/WnelGoModal';
 import { ProfileSettingsModal } from './components/profile/ProfileSettingsModal';
 import { AdminPanelModal } from './components/admin/AdminPanelModal';
 import { AuthModal } from './components/auth/AuthModal';
+import { ModelSelectorSheet } from './components/chat/ModelSelectorSheet';
+import { VoiceModeModal } from './components/chat/VoiceModeModal';
 import { TestAccessGate } from './components/auth/TestAccessGate';
 import { 
   getThinkingCooldownUntil, 
@@ -48,6 +66,8 @@ export default function App() {
   const [isAuthOpen, setIsAuthOpen] = useState(false);
   const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
   const [isGoModalOpen, setIsGoModalOpen] = useState(false);
+  const [isModelSheetOpen, setIsModelSheetOpen] = useState(false);
+  const [isVoiceModeOpen, setIsVoiceModeOpen] = useState(false);
   
   // Intelligent Scroll State
   const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -551,6 +571,7 @@ export default function App() {
           .catch(err => console.error("Title generation error", err));
         }
       }
+      return fullResponse;
     } catch (error) {
       console.error('Chat error:', error);
       setMessages(prev => [...prev, { 
@@ -558,6 +579,7 @@ export default function App() {
         role: 'ai', 
         content: 'Bir hata oluştu. Lütfen tekrar deneyin.' 
       }]);
+      return undefined;
     } finally {
       setIsLoading(false);
     }
@@ -590,6 +612,8 @@ export default function App() {
           onOpenProfile={handleOpenProfile}
           onOpenAdmin={handleOpenAdmin}
           onOpenGoModal={() => setIsGoModalOpen(true)}
+          onOpenModelSheet={() => setIsModelSheetOpen(true)}
+          onOpenAuth={handleOpenAuth}
         />
 
         {/* Banned banner if user is suspended */}
@@ -615,36 +639,30 @@ export default function App() {
           onScroll={handleScroll}
           className="flex-1 overflow-y-auto scrollbar-thin scrollbar-thumb-white/10 pt-4 pb-36 relative scroll-smooth"
         >
-          <div className="max-w-4xl mx-auto px-4 w-full flex flex-col gap-6">
+          <div className="max-w-3xl mx-auto px-4 w-full flex flex-col gap-6">
             {!user ? (
-              <div className="flex flex-col items-center justify-center min-h-[65vh] text-center px-4 py-8 opacity-0 animate-[fadeIn_0.6s_ease-out_forwards]">
-                <div className="flex flex-col items-center gap-4 mb-6">
-                  <WnelLogo size="xl" withGlow={true} />
-                  <div className="text-center max-w-lg">
-                    <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold text-white tracking-tight leading-tight mb-2">
-                      WnelAI'ye Hoş Geldiniz
-                    </h1>
-                    <h2 className="text-base sm:text-lg md:text-xl font-medium text-sky-400 tracking-tight leading-snug">
-                      Sohbete başlamak için giriş yapın veya kayıt olun.
-                    </h2>
-                    <p className="text-xs sm:text-sm text-zinc-400 mt-2.5 max-w-md mx-auto leading-relaxed">
-                      WnelAI ile kod yazın, analiz yapın, fikir üretin ve sınırsız yapay zeka deneyiminin tadını çıkarın.
-                    </p>
-                  </div>
+              <div className="flex flex-col items-center justify-center min-h-[60vh] text-center px-4 py-8 opacity-0 animate-[fadeIn_0.5s_ease-out_forwards]">
+                <div className="flex flex-col items-center gap-4 mb-8">
+                  <h1 className="text-2.5xl sm:text-3xl md:text-4xl font-bold text-white tracking-tight leading-tight">
+                    Ne bilmek istiyorsunuz?
+                  </h1>
+                  <p className="text-xs sm:text-sm text-zinc-400 max-w-sm mx-auto leading-relaxed">
+                    Soru sorun, kod yazın, fikir üretin veya görseller hakkında tartışın.
+                  </p>
                 </div>
 
                 {/* Central responsive action buttons */}
                 <div className="flex flex-col sm:flex-row items-center gap-3 w-full max-w-xs sm:max-w-sm">
                   <button
                     onClick={() => handleOpenAuth('login')}
-                    className="w-full sm:flex-1 flex items-center justify-center gap-2 bg-gradient-to-r from-sky-500 to-blue-600 hover:from-sky-400 hover:to-blue-500 active:scale-95 text-white font-semibold py-3 px-5 rounded-2xl shadow-lg shadow-sky-500/25 transition-all text-sm cursor-pointer"
+                    className="w-full sm:flex-1 flex items-center justify-center gap-2 bg-[#2563eb] hover:bg-[#1d4ed8] active:scale-95 text-white font-semibold py-3 px-5 rounded-full shadow-lg shadow-blue-600/25 transition-all text-sm cursor-pointer"
                   >
                     <LogIn className="w-4 h-4" />
                     <span>Giriş Yap</span>
                   </button>
                   <button
                     onClick={() => handleOpenAuth('register')}
-                    className="w-full sm:flex-1 flex items-center justify-center gap-2 bg-white/[0.05] hover:bg-white/[0.1] active:scale-95 border border-white/10 hover:border-sky-500/30 text-zinc-200 font-medium py-3 px-5 rounded-2xl transition-all text-sm cursor-pointer"
+                    className="w-full sm:flex-1 flex items-center justify-center gap-2 bg-white/[0.05] hover:bg-white/[0.1] active:scale-95 border border-white/10 text-zinc-200 font-medium py-3 px-5 rounded-full transition-all text-sm cursor-pointer"
                   >
                     <UserPlus className="w-4 h-4" />
                     <span>Kayıt Ol</span>
@@ -653,8 +671,8 @@ export default function App() {
               </div>
             ) : user && !user.emailVerified ? (
               <div className="flex flex-col items-center justify-center min-h-[60vh] opacity-0 animate-[fadeIn_0.6s_ease-out_forwards]">
-                <div className="glass-panel rounded-3xl p-8 text-center max-w-md shadow-2xl">
-                  <div className="w-12 h-12 rounded-2xl bg-sky-500/10 border border-sky-500/20 flex items-center justify-center mx-auto mb-4 text-sky-400">
+                <div className="bg-[#141418] border border-white/10 rounded-3xl p-8 text-center max-w-md shadow-2xl">
+                  <div className="w-12 h-12 rounded-2xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-center mx-auto mb-4 text-blue-400">
                     <Mail className="w-6 h-6" />
                   </div>
                   <h2 className="text-xl font-semibold text-white mb-2">E-posta doğrulaması gerekli</h2>
@@ -668,19 +686,56 @@ export default function App() {
               </div>
             ) : isChatLoading ? (
               <div className="flex flex-col items-center justify-center h-[60vh]">
-                <Loader2 className="w-8 h-8 text-sky-400 animate-spin" />
+                <Loader2 className="w-8 h-8 text-blue-400 animate-spin" />
               </div>
             ) : messages.length === 0 ? (
-              <div className="flex flex-col items-center justify-center min-h-[60vh] opacity-0 animate-[fadeIn_0.6s_ease-out_forwards]">
-                <div className="flex flex-col items-center gap-4 mb-4">
-                  <WnelLogo size="xl" withGlow={true} />
-                  <div className="text-center">
-                    <h1 className="text-2xl sm:text-3xl font-bold text-white tracking-tight leading-snug">Hadi başlayalım.</h1>
-                    <h2 className="text-2xl sm:text-3xl font-bold text-sky-400 tracking-tight leading-snug flex items-center justify-center gap-2">
-                      <span>WnelAI'ye Sor, Daha Fazlasını Öğren.</span>
-                      <span className="text-sky-400 text-lg">✦</span>
-                    </h2>
-                  </div>
+              <div className="flex flex-col items-center justify-center min-h-[55vh] opacity-0 animate-[fadeIn_0.5s_ease-out_forwards] text-center select-none">
+                {/* Center Title (Screenshot 2 & 3: "Ne bilmek istiyorsunuz?") */}
+                <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold text-white tracking-tight mb-8">
+                  Ne bilmek istiyorsunuz?
+                </h1>
+
+                {/* Quick Prompts Grid / List (Screenshot 1 style: Görsel oluştur, Yaz veya düzenle, Web'de arama yap) */}
+                <div className="w-full max-w-md flex flex-col gap-2.5 text-left">
+                  <button
+                    onClick={() => handleSendMessage("Bana fütüristik bir şehir görseli tasarlayabilir misin?")}
+                    className="flex items-center gap-3.5 px-4 py-3.5 rounded-2xl bg-[#16161c]/90 hover:bg-[#20202a] border border-white/[0.06] hover:border-white/20 text-zinc-200 hover:text-white transition-all cursor-pointer group active:scale-[0.99]"
+                  >
+                    <div className="w-8 h-8 rounded-xl bg-white/5 flex items-center justify-center text-zinc-400 group-hover:text-sky-300 group-hover:bg-sky-500/10 transition-colors">
+                      <ImageIcon className="w-4 h-4 stroke-[2]" />
+                    </div>
+                    <span className="text-[14px] font-medium tracking-tight">Görsel oluştur</span>
+                  </button>
+
+                  <button
+                    onClick={() => handleSendMessage("Profesyonel bir e-posta taslağı yazmama yardımcı olur musun?")}
+                    className="flex items-center gap-3.5 px-4 py-3.5 rounded-2xl bg-[#16161c]/90 hover:bg-[#20202a] border border-white/[0.06] hover:border-white/20 text-zinc-200 hover:text-white transition-all cursor-pointer group active:scale-[0.99]"
+                  >
+                    <div className="w-8 h-8 rounded-xl bg-white/5 flex items-center justify-center text-zinc-400 group-hover:text-amber-300 group-hover:bg-amber-500/10 transition-colors">
+                      <PenLine className="w-4 h-4 stroke-[2]" />
+                    </div>
+                    <span className="text-[14px] font-medium tracking-tight">Yaz veya düzenle</span>
+                  </button>
+
+                  <button
+                    onClick={() => handleSendMessage("Güncel teknoloji ve yapay zeka trendleri hakkında bilgi ver.")}
+                    className="flex items-center gap-3.5 px-4 py-3.5 rounded-2xl bg-[#16161c]/90 hover:bg-[#202028] border border-white/[0.06] hover:border-white/20 text-zinc-200 hover:text-white transition-all cursor-pointer group active:scale-[0.99]"
+                  >
+                    <div className="w-8 h-8 rounded-xl bg-white/5 flex items-center justify-center text-zinc-400 group-hover:text-emerald-300 group-hover:bg-emerald-500/10 transition-colors">
+                      <Globe className="w-4 h-4 stroke-[2]" />
+                    </div>
+                    <span className="text-[14px] font-medium tracking-tight">Web'de arama yap</span>
+                  </button>
+
+                  <button
+                    onClick={() => handleSendMessage("Modern bir React ve TypeScript kanca (custom hook) örneği yazar mısın?")}
+                    className="flex items-center gap-3.5 px-4 py-3.5 rounded-2xl bg-[#16161c]/90 hover:bg-[#202028] border border-white/[0.06] hover:border-white/20 text-zinc-200 hover:text-white transition-all cursor-pointer group active:scale-[0.99]"
+                  >
+                    <div className="w-8 h-8 rounded-xl bg-white/5 flex items-center justify-center text-zinc-400 group-hover:text-indigo-300 group-hover:bg-indigo-500/10 transition-colors">
+                      <Code2 className="w-4 h-4 stroke-[2]" />
+                    </div>
+                    <span className="text-[14px] font-medium tracking-tight">Kod yaz veya analiz et</span>
+                  </button>
                 </div>
               </div>
             ) : (
@@ -733,6 +788,9 @@ export default function App() {
                 isLoading={isLoading} 
                 thinkingCooldownUntil={thinkingCooldownUntil}
                 isGo={isGo}
+                onOpenGoModal={() => setIsGoModalOpen(true)}
+                onOpenModelSheet={() => setIsModelSheetOpen(true)}
+                onOpenVoiceMode={() => setIsVoiceModeOpen(true)}
                 onAttachClick={() => {
                   if (!isGo) {
                     setCooldownToast({
@@ -804,6 +862,27 @@ export default function App() {
         onClose={() => setIsAuthOpen(false)}
         initialMode={authMode}
       />
+
+      {/* Model Selector Sheet (Screenshot 3 style) */}
+      <ModelSelectorSheet
+        isOpen={isModelSheetOpen}
+        onClose={() => setIsModelSheetOpen(false)}
+        selectedModel={selectedModel}
+        onModelSelect={handleModelSelect}
+        thinkingCooldownUntil={thinkingCooldownUntil}
+        onThinkingLockedClick={() => showThinkingLockedAlert()}
+      />
+
+      {/* Interactive Voice Mode Modal */}
+      {isVoiceModeOpen && (
+        <VoiceModeModal
+          isOpen={isVoiceModeOpen}
+          onClose={() => setIsVoiceModeOpen(false)}
+          onSendMessage={handleSendMessage}
+          selectedModel={selectedModel}
+          onOpenGoModal={() => setIsGoModalOpen(true)}
+        />
+      )}
 
       {/* Temporary Test Access Gate */}
       <AnimatePresence>

@@ -243,6 +243,15 @@ async function startServer() {
     res.json(healthData);
   });
 
+  app.get('/api/server-date', (req, res) => {
+    const now = new Date();
+    res.json({
+      date: now.toISOString().slice(0, 10),
+      timestamp: now.getTime(),
+      timezone: 'UTC'
+    });
+  });
+
   // Stream chunk parser to filter out <think>...</think> blocks dynamically
   class ThinkFilter {
     private buffer = '';

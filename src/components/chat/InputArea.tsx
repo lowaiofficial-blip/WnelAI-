@@ -1,7 +1,17 @@
 import React, { useRef, useEffect, useState } from 'react';
-import { Plus, Send, StopCircle, Mic, Sparkles, Clock, Lock, Zap, X } from 'lucide-react';
+import { 
+  Paperclip,
+  SlidersHorizontal,
+  ArrowUp, 
+  StopCircle, 
+  Mic, 
+  MicOff,
+  X,
+  Sparkles
+} from 'lucide-react';
 import { cn } from '../../lib/utils';
-import { getIstanbulFormattedTime, formatRemainingTime } from '../../lib/thinkingCooldown';
+import { getIstanbulFormattedTime } from '../../lib/thinkingCooldown';
+import { isSpeechRecognitionSupported } from '../../lib/speech';
 
 interface InputAreaProps {
   onSend: (message: string) => void;
@@ -9,6 +19,9 @@ interface InputAreaProps {
   thinkingCooldownUntil?: number;
   isGo?: boolean;
   onAttachClick?: () => void;
+  onOpenGoModal?: () => void;
+  onOpenModelSheet?: () => void;
+  onOpenVoiceMode?: () => void;
 }
 
 export function InputArea({ 
@@ -16,16 +29,22 @@ export function InputArea({
   isLoading, 
   thinkingCooldownUntil = 0,
   isGo = false,
-  onAttachClick
+  onAttachClick,
+  onOpenGoModal,
+  onOpenModelSheet,
+  onOpenVoiceMode
 }: InputAreaProps) {
   const [input, setInput] = useState('');
   const [isBannerDismissed, setIsBannerDismissed] = useState(false);
+  const [isRecording, setIsRecording] = useState(false);
+  const [speechError, setSpeechError] = useState<string | null>(null);
+
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const recognitionRef = useRef<any>(null);
 
-  const isCooldownActive = thinkingCooldownUntil > Date.now();
+  const isCooldownActive = !isGo && thinkingCooldownUntil > Date.now();
   const istanbulTime = isCooldownActive ? getIstanbulFormattedTime(thinkingCooldownUntil) : '';
-  const remainingMs = Math.max(0, thinkingCooldownUntil - Date.now());
 
   // Reset banner dismissal whenever a new cooldown timestamp is triggered
   useEffect(() => {
@@ -38,7 +57,7 @@ export function InputArea({
     const textarea = textareaRef.current;
     if (textarea) {
       textarea.style.height = 'auto';
-      textarea.style.height = `${Math.min(textarea.scrollHeight, 220)}px`;
+      textarea.style.height = `${Math.min(textarea.scrollHeight, 180)}px`;
     }
   };
 
@@ -46,7 +65,21 @@ export function InputArea({
     adjustHeight();
   }, [input]);
 
+  // Clean up speech recognition on unmount
+  useEffect(() => {
+    return () => {
+      if (recognitionRef.current) {
+        try {
+          recognitionRef.current.abort();
+        } catch (e) {}
+      }
+    };
+  }, []);
+
   const handleSend = () => {
+    if (isRecording) {
+      stopVoiceRecording();
+    }
     if (input.trim() && !isLoading) {
       onSend(input.trim());
       setInput('');
@@ -63,7 +96,7 @@ export function InputArea({
     }
   };
 
-  const handlePlusClick = () => {
+  const handleAttachClick = () => {
     if (onAttachClick) {
       onAttachClick();
     } else if (isGo) {
@@ -71,8 +104,82 @@ export function InputArea({
     }
   };
 
+  const startVoiceRecording = () => {
+    if (!isSpeechRecognitionSupported()) {
+      setSpeechError('Tarayıcınız ses tanımayı desteklemiyor.');
+      setTimeout(() => setSpeechError(null), 3000);
+      return;
+    }
+
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    try {
+      if (recognitionRef.current) {
+        recognitionRef.current.abort();
+      }
+
+      const recognition = new SpeechRecognition();
+      recognition.lang = 'tr-TR';
+      recognition.continuous = true;
+      recognition.interimResults = true;
+
+      const baseText = input ? input.trim() + ' ' : '';
+
+      recognition.onstart = () => {
+        setIsRecording(true);
+        setSpeechError(null);
+      };
+
+      recognition.onresult = (event: any) => {
+        let interimTranscript = '';
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+          interimTranscript += event.results[i][0].transcript;
+        }
+        if (interimTranscript) {
+          setInput(baseText + interimTranscript);
+        }
+      };
+
+      recognition.onerror = (event: any) => {
+        console.warn('Recognition error:', event.error);
+        if (event.error === 'not-allowed') {
+          setSpeechError('Mikrofon erişim izni verilmedi.');
+          setTimeout(() => setSpeechError(null), 4000);
+        }
+        setIsRecording(false);
+      };
+
+      recognition.onend = () => {
+        setIsRecording(false);
+      };
+
+      recognitionRef.current = recognition;
+      recognition.start();
+    } catch (err) {
+      console.error('Speech start error:', err);
+      setIsRecording(false);
+    }
+  };
+
+  const stopVoiceRecording = () => {
+    if (recognitionRef.current) {
+      try {
+        recognitionRef.current.stop();
+      } catch (e) {}
+      recognitionRef.current = null;
+    }
+    setIsRecording(false);
+  };
+
+  const handleVoiceToggle = () => {
+    if (isRecording) {
+      stopVoiceRecording();
+    } else {
+      startVoiceRecording();
+    }
+  };
+
   return (
-    <div className="w-full max-w-3xl mx-auto px-4 pb-4 sm:pb-6 pt-2">
+    <div className="w-full max-w-3xl mx-auto px-2 sm:px-4 pb-2 pt-1 select-none">
       {/* Hidden file input for Go users */}
       <input
         ref={fileInputRef}
@@ -86,106 +193,157 @@ export function InputArea({
         }}
       />
 
-      {/* Thinking Mode Cooldown Banner */}
+      {/* Speech error toast if any */}
+      {speechError && (
+        <div className="mb-2 bg-red-500/10 border border-red-500/20 text-red-300 text-xs px-3 py-1.5 rounded-xl text-center animate-in fade-in">
+          {speechError}
+        </div>
+      )}
+
+      {/* Limit Reached Card UI (Exact replica of user reference image) */}
       {isCooldownActive && !isBannerDismissed && (
-        <div className="mb-2.5 bg-gradient-to-r from-amber-500/10 via-orange-500/10 to-amber-500/10 border border-amber-500/25 backdrop-blur-xl rounded-2xl px-3.5 py-2.5 flex items-center justify-between gap-3 shadow-lg shadow-amber-950/20 text-xs animate-in fade-in slide-in-from-bottom-2 duration-300">
-          <div className="flex items-center gap-2.5 min-w-0">
-            <div className="w-7 h-7 rounded-xl bg-amber-500/20 border border-amber-500/30 flex items-center justify-center shrink-0 text-amber-300 shadow-[0_0_10px_rgba(245,158,11,0.2)]">
-              <Clock className="w-4 h-4" />
+        <div className="mb-3.5 bg-[#212124] border border-white/[0.06] rounded-[24px] p-5 shadow-2xl shadow-black/80 animate-in fade-in slide-in-from-bottom-2 duration-300">
+          <div className="flex items-start justify-between gap-4">
+            <div className="space-y-1 pr-2">
+              <h3 className="text-white text-[15px] font-semibold tracking-tight">
+                Wnel3.8-Max (Düşünen Mod) plan limitinize ulaştınız.
+              </h3>
+              <p className="text-[#a1a1aa] text-[13.5px] leading-relaxed">
+                Limitiniz saat <span className="text-white font-medium">{istanbulTime}</span> sonrasında sıfırlanana kadar yanıtlar hızlı model kullanılarak verilecektir.
+              </p>
             </div>
-            <p className="text-amber-200/90 leading-snug text-[12px] sm:text-[13px]">
-              Saat <strong className="text-white bg-amber-500/30 px-1.5 py-0.5 rounded border border-amber-500/40 text-amber-100 font-bold">{istanbulTime}</strong>'a kadar düşünen mod limitiniz dolmuştur. <span className="text-zinc-400 font-normal">(Hızlı moda geçildi)</span>
-            </p>
-          </div>
-          <div className="shrink-0 flex items-center gap-2">
-            <div className="flex items-center gap-1.5 bg-amber-500/15 border border-amber-500/30 px-2 py-1 rounded-lg">
-              <Lock className="w-3 h-3 text-amber-400" />
-              <span className="text-amber-300 font-mono text-[11px] font-medium">
-                {formatRemainingTime(remainingMs)}
-              </span>
-            </div>
+            
+            {/* Close Button */}
             <button
               onClick={() => setIsBannerDismissed(true)}
-              className="text-zinc-400 hover:text-white p-1 rounded-lg hover:bg-white/10 transition-colors cursor-pointer"
-              title="Mesajı gizle (Düşünen mod kilitli kalmaya devam eder)"
+              className="w-8 h-8 rounded-full flex items-center justify-center text-zinc-400 hover:text-white hover:bg-white/10 transition-colors cursor-pointer shrink-0 -mr-1 -mt-1"
+              title="Kapat"
             >
-              <X className="w-3.5 h-3.5" />
+              <X className="w-4 h-4 stroke-[2.2]" />
+            </button>
+          </div>
+
+          {/* Action Button: Get Pro / Go'ya Geç */}
+          <div className="mt-4">
+            <button
+              onClick={() => onOpenGoModal && onOpenGoModal()}
+              className="inline-flex items-center gap-2 bg-[#2e2e34] hover:bg-[#3a3a42] active:scale-95 text-white font-semibold text-sm px-5 py-2.5 rounded-full transition-all cursor-pointer shadow-md"
+            >
+              <Sparkles className="w-4 h-4 text-sky-400 fill-sky-400/20" />
+              <span>Go'ya Geç</span>
             </button>
           </div>
         </div>
       )}
 
-      <div className="relative bg-[#1A1A1A]/80 backdrop-blur-2xl border border-white/5 rounded-[32px] p-1.5 flex items-end gap-2 transition-all duration-300 shadow-2xl shadow-black/40">
+      {/* Modern Chat Box (Exact replica of user reference image) */}
+      <div className={cn(
+        "relative bg-[#212124] border rounded-[28px] p-4 flex flex-col gap-3 transition-all duration-300 shadow-2xl shadow-black/80",
+        isRecording 
+          ? "border-red-500/50 shadow-red-500/10 ring-1 ring-red-500/30" 
+          : "border-white/[0.06] hover:border-white/[0.12] focus-within:border-white/20"
+      )}>
         
-        {/* Plus / Add Attachment Button */}
-        <div className="flex items-center shrink-0 mb-0.5">
-          <button 
-            type="button"
-            onClick={handlePlusClick}
-            className="w-10 h-10 flex items-center justify-center text-zinc-400 hover:text-white bg-white/5 hover:bg-white/10 active:scale-95 rounded-full transition-all cursor-pointer group"
-            title="Dosya veya Görsel Ekle"
-          >
-            <Plus className="w-5 h-5 group-hover:rotate-90 transition-transform duration-300" />
-          </button>
-        </div>
-
-        {/* Text Area */}
+        {/* Top Textarea */}
         <textarea
           ref={textareaRef}
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder="Bugün size nasıl yardımcı olabilirim?"
-          className="flex-1 max-h-[160px] bg-transparent text-white placeholder:text-zinc-500 resize-none outline-none py-3 px-1 text-[15px] leading-relaxed overflow-y-auto scrollbar-none"
+          placeholder={isRecording ? "Dinleniyor... Konuşabilirsiniz..." : "Bugün size nasıl yardımcı olabilirim?"}
+          className="w-full min-h-[30px] max-h-[160px] bg-transparent text-white placeholder:text-[#8e8e93] resize-none outline-none text-[15.5px] leading-relaxed overflow-y-auto scrollbar-none"
           rows={1}
         />
 
-        {/* Action Button (Send / Stop / Mic) */}
-        <div className="flex items-center gap-1.5 shrink-0 mb-0.5 mr-0.5">
-          {isLoading ? (
-            <button 
+        {/* Bottom Actions Row */}
+        <div className="flex items-center justify-between pt-1">
+          {/* Left Actions: Attachment & Sliders/Model Tools */}
+          <div className="flex items-center gap-2">
+            {/* Attachment Button */}
+            <button
               type="button"
-              className="w-10 h-10 flex items-center justify-center bg-zinc-800/80 text-zinc-300 hover:text-white hover:bg-zinc-700 rounded-full transition-all cursor-pointer"
-              title="Cevap Üretimini Durdur"
+              onClick={handleAttachClick}
+              className="w-9 h-9 rounded-full bg-[#2a2a30] hover:bg-[#34343c] active:scale-95 flex items-center justify-center text-zinc-300 hover:text-white transition-all cursor-pointer"
+              title="Dosya veya Görsel Ekle"
             >
-              <StopCircle className="w-5 h-5" />
+              <Paperclip className="w-4.5 h-4.5 stroke-[2] -rotate-45" />
             </button>
-          ) : (
-            <>
-              {!input.trim() && (
-                <button 
-                  type="button"
-                  className="w-10 h-10 flex items-center justify-center text-zinc-400 hover:text-white transition-all cursor-pointer rounded-full hover:bg-white/5"
-                  title="Sesli Giriş"
-                >
-                  <Mic className="w-5 h-5" />
-                </button>
-              )}
+
+            {/* Models / Sliders Settings Button */}
+            <button
+              type="button"
+              onClick={() => onOpenModelSheet && onOpenModelSheet()}
+              className="w-9 h-9 rounded-full bg-[#2a2a30] hover:bg-[#34343c] active:scale-95 flex items-center justify-center text-zinc-300 hover:text-white transition-all cursor-pointer"
+              title="Model Ayarları"
+            >
+              <SlidersHorizontal className="w-4.5 h-4.5 stroke-[2]" />
+            </button>
+          </div>
+
+          {/* Right Actions: Mic & Solid Voice Equalizer / Send */}
+          <div className="flex items-center gap-2">
+            {isLoading ? (
+              <button 
+                type="button"
+                className="w-9 h-9 rounded-full bg-[#2a2a30] hover:bg-[#34343c] flex items-center justify-center text-zinc-300 hover:text-white transition-all cursor-pointer"
+                title="Durdur"
+              >
+                <StopCircle className="w-5 h-5" />
+              </button>
+            ) : input.trim() ? (
               <button 
                 type="button"
                 onClick={handleSend}
-                disabled={!input.trim()}
-                className={cn(
-                  "w-10 h-10 flex items-center justify-center rounded-full transition-all duration-300",
-                  input.trim() 
-                    ? "bg-gradient-to-br from-indigo-500 via-blue-600 to-sky-500 text-white cursor-pointer shadow-[0_0_15px_rgba(56,189,248,0.4)] hover:scale-105 active:scale-95" 
-                    : "hidden"
-                )}
+                className="w-9 h-9 rounded-full bg-white hover:bg-zinc-200 active:scale-95 flex items-center justify-center text-black transition-all cursor-pointer shadow-lg shadow-white/20"
                 title="Gönder"
               >
-                {input.trim() && (
-                  <Send className="w-4 h-4 translate-x-0.5 -translate-y-0.5" />
-                )}
+                <ArrowUp className="w-5 h-5 stroke-[2.5]" />
               </button>
-            </>
-          )}
+            ) : (
+              <>
+                {/* Mic Icon Button with Live Speech Recording */}
+                <button 
+                  type="button"
+                  onClick={handleVoiceToggle}
+                  className={cn(
+                    "w-9 h-9 rounded-full flex items-center justify-center transition-all cursor-pointer active:scale-95",
+                    isRecording 
+                      ? "bg-red-500 text-white animate-pulse shadow-lg shadow-red-500/40" 
+                      : "bg-[#2a2a30] hover:bg-[#34343c] text-zinc-300 hover:text-white"
+                  )}
+                  title={isRecording ? "Kaydı Durdur" : "Sesli Giriş Yap (Mikrofon)"}
+                >
+                  {isRecording ? <MicOff className="w-4.5 h-4.5 stroke-[2]" /> : <Mic className="w-4.5 h-4.5 stroke-[2]" />}
+                </button>
+
+                {/* Solid White Audio Equalizer Circle -> Opens Interactive Voice Mode */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (onOpenVoiceMode) {
+                      onOpenVoiceMode();
+                    }
+                  }}
+                  className="w-9 h-9 rounded-full bg-white hover:bg-zinc-200 active:scale-95 flex items-center justify-center text-black transition-all cursor-pointer shadow-lg shadow-white/10 group"
+                  title="WnelAI Canlı Sesli Sohbet Modu"
+                >
+                  <div className="flex items-center justify-center gap-[2.5px]">
+                    <span className="w-[2.5px] h-2 bg-black rounded-full group-hover:h-3 transition-all" />
+                    <span className="w-[2.5px] h-4 bg-black rounded-full group-hover:h-2 transition-all" />
+                    <span className="w-[2.5px] h-2.5 bg-black rounded-full group-hover:h-4 transition-all" />
+                    <span className="w-[2.5px] h-1.5 bg-black rounded-full group-hover:h-2.5 transition-all" />
+                  </div>
+                </button>
+              </>
+            )}
+          </div>
         </div>
       </div>
       
-      <div className="text-center mt-3">
-        <p className="text-[11px] text-zinc-500/70 font-medium tracking-wide">
-          WnelAI'ye mesaj göndererek, <span className="underline decoration-white/20 underline-offset-2 cursor-pointer hover:text-zinc-300">Kullanım Koşulları</span> metnini kabul eder ve 
-          <br className="sm:hidden" /> <span className="underline decoration-white/20 underline-offset-2 cursor-pointer hover:text-zinc-300">Gizlilik Politikası</span>'nı okumuş olduğunuzu onaylarsınız.
+      {/* Subtle Disclaimer */}
+      <div className="text-center mt-2.5">
+        <p className="text-[11px] text-zinc-500 font-normal">
+          WnelAI hata yapabilir. Önemli bilgileri kontrol edin.
         </p>
       </div>
     </div>

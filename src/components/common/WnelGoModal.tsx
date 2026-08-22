@@ -18,6 +18,12 @@ export function WnelGoModal({ isOpen, onClose, onClaimVipPrompt }: WnelGoModalPr
 
   const features = [
     {
+      name: '🎙️ Sesli AI Konuşma (60 dk / gün)',
+      free: false,
+      go: true,
+      plus: true,
+    },
+    {
       name: 'Sınırsız yazılı sohbet',
       free: true,
       go: true,

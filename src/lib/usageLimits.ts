@@ -1,11 +1,20 @@
-import { UserPlan, PLANS_CONFIG, FREE_CHAT_LIMIT, GO_CHAT_LIMIT, GO_THINKING_DAILY_LIMIT } from '../config/plans';
+import { UserPlan, PLANS_CONFIG, FREE_CHAT_LIMIT, GO_CHAT_LIMIT, GO_THINKING_DAILY_LIMIT, FREE_VOICE_LIMIT_SECONDS, GO_VOICE_LIMIT_SECONDS } from '../config/plans';
 import { getThinkingCooldownUntil } from './thinkingCooldown';
+import { UserProfile } from '../types';
 
-function getTodayString(): string {
+export function getTodayString(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
-function getUsageStorageKey(userId: string | undefined, type: 'chat' | 'thinking'): string {
+// Format seconds into MM:SS (e.g., 300 -> "05:00", 124 -> "02:04")
+export function formatSecondsToTime(seconds: number): string {
+  const safeSeconds = Math.max(0, Math.floor(seconds || 0));
+  const minutes = Math.floor(safeSeconds / 60);
+  const remainingSecs = safeSeconds % 60;
+  return `${minutes.toString().padStart(2, '0')}:${remainingSecs.toString().padStart(2, '0')}`;
+}
+
+function getUsageStorageKey(userId: string | undefined, type: 'chat' | 'thinking' | 'voice'): string {
   const userSegment = userId ? `user_${userId}` : 'guest';
   const today = getTodayString();
   return `wnelai_usage_${type}_${userSegment}_${today}`;
@@ -33,6 +42,89 @@ export function incrementDailyUsage(userId: string | undefined, type: 'chat' | '
   } catch {
     return 1;
   }
+}
+
+// Voice Local Storage Cache & Sync
+export function getDailyVoiceUsageLocal(userId: string | undefined): number {
+  try {
+    const key = getUsageStorageKey(userId, 'voice');
+    const val = localStorage.getItem(key);
+    if (!val) return 0;
+    const num = parseInt(val, 10);
+    return isNaN(num) ? 0 : Math.max(0, num);
+  } catch {
+    return 0;
+  }
+}
+
+export function recordVoiceUsageLocal(userId: string | undefined, seconds: number): number {
+  try {
+    const key = getUsageStorageKey(userId, 'voice');
+    const current = getDailyVoiceUsageLocal(userId);
+    const updated = Math.max(0, current + Math.round(seconds));
+    localStorage.setItem(key, updated.toString());
+    return updated;
+  } catch {
+    return 0;
+  }
+}
+
+export function setDailyVoiceUsageLocal(userId: string | undefined, seconds: number): void {
+  try {
+    const key = getUsageStorageKey(userId, 'voice');
+    localStorage.setItem(key, Math.max(0, Math.round(seconds)).toString());
+  } catch {}
+}
+
+export interface VoiceUsageStatus {
+  usedSeconds: number;
+  limitSeconds: number;
+  remainingSeconds: number;
+  allowed: boolean;
+  formattedUsed: string;
+  formattedRemaining: string;
+  formattedLimit: string;
+}
+
+export function getVoiceDailyLimitSeconds(plan: UserPlan = 'free'): number {
+  return plan === 'go' ? GO_VOICE_LIMIT_SECONDS : FREE_VOICE_LIMIT_SECONDS;
+}
+
+export function getVoiceUsageStatus(
+  profile: UserProfile | null,
+  plan: UserPlan = 'free',
+  userId?: string
+): VoiceUsageStatus {
+  const effectivePlan: UserPlan = (profile?.plan === 'go' || plan === 'go') ? 'go' : 'free';
+  const limitSeconds = getVoiceDailyLimitSeconds(effectivePlan);
+
+  const today = getTodayString();
+  let usedSeconds = 0;
+
+  if (profile) {
+    if (profile.voiceLastUsedDate === today) {
+      usedSeconds = profile.voiceSecondsUsedToday || 0;
+    } else {
+      // New day -> 0
+      usedSeconds = 0;
+    }
+  } else {
+    // Guest or unauthenticated -> local storage
+    usedSeconds = getDailyVoiceUsageLocal(userId);
+  }
+
+  const remainingSeconds = Math.max(0, limitSeconds - usedSeconds);
+  const allowed = remainingSeconds > 0;
+
+  return {
+    usedSeconds,
+    limitSeconds,
+    remainingSeconds,
+    allowed,
+    formattedUsed: formatSecondsToTime(usedSeconds),
+    formattedRemaining: formatSecondsToTime(remainingSeconds),
+    formattedLimit: formatSecondsToTime(limitSeconds),
+  };
 }
 
 export interface ChatLimitStatus {

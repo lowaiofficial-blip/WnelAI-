@@ -22,6 +22,8 @@
         "thinkingLastUsedDate": { "type": "string" },
         "chatCountToday": { "type": "number" },
         "chatLastDate": { "type": "string" },
+        "voiceSecondsUsedToday": { "type": "number" },
+        "voiceLastUsedDate": { "type": "string" },
         "settings": { "type": "object" }
       },
       "required": ["email"]

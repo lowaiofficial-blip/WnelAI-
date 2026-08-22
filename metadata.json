@@ -1,6 +1,6 @@
 {
   "name": "WnelAI",
-  "description": "Premium AI platform with modern UI, dark theme, and smooth animations.",
-  "requestFramePermissions": [],
+  "description": "Premium AI platform with modern UI, dark theme, voice features, and smooth animations.",
+  "requestFramePermissions": ["microphone"],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

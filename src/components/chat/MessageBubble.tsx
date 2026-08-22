@@ -2,10 +2,22 @@ import React from 'react';
 import { motion } from 'motion/react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { Copy, Edit2, RotateCcw, Check, AlertCircle, Sparkles, Terminal, ThumbsUp, ThumbsDown, MoreHorizontal } from 'lucide-react';
+import { 
+  Copy, 
+  RotateCcw, 
+  Check, 
+  AlertCircle, 
+  Sparkles, 
+  Terminal, 
+  ThumbsUp, 
+  ThumbsDown,
+  Volume2,
+  VolumeX
+} from 'lucide-react';
 import { Message } from '../../types';
 import { cn } from '../../lib/utils';
 import { WnelLogo } from '../common/WnelLogo';
+import { speakText, stopSpeaking, isSpeechSynthesisSupported } from '../../lib/speech';
 
 interface MessageBubbleProps {
   message: Message;
@@ -79,6 +91,7 @@ export function MessageBubble({ message, onRegenerate }: MessageBubbleProps) {
   const [copied, setCopied] = React.useState(false);
   const [liked, setLiked] = React.useState(false);
   const [disliked, setDisliked] = React.useState(false);
+  const [isSpeaking, setIsSpeaking] = React.useState(false);
   const isSafetyViolation = !isUser && message.content.includes('[[SAFETY_VIOLATION_ERROR]]');
 
   const handleCopy = () => {
@@ -95,6 +108,20 @@ export function MessageBubble({ message, onRegenerate }: MessageBubbleProps) {
   const handleDislike = () => {
     setDisliked(!disliked);
     if (!disliked) setLiked(false);
+  };
+
+  const handleToggleSpeak = () => {
+    if (isSpeaking) {
+      stopSpeaking();
+      setIsSpeaking(false);
+    } else {
+      speakText(
+        message.content,
+        () => setIsSpeaking(true),
+        () => setIsSpeaking(false),
+        () => setIsSpeaking(false)
+      );
+    }
   };
 
   if (isSafetyViolation) {
@@ -147,7 +174,7 @@ export function MessageBubble({ message, onRegenerate }: MessageBubbleProps) {
         className={cn(
           "max-w-[88%] md:max-w-[76%] transition-all",
           isUser 
-            ? "bg-gradient-to-br from-sky-900/30 via-blue-900/35 to-indigo-900/35 border border-sky-500/25 text-white rounded-3xl rounded-tr-md px-5 py-3.5 shadow-lg shadow-sky-950/20 backdrop-blur-md" 
+            ? "bg-[#2f2f32] text-white rounded-[24px] px-5 py-3.5 shadow-sm border border-white/[0.04]" 
             : "bg-transparent text-zinc-100 px-1 py-1"
         )}
       >
@@ -299,6 +326,33 @@ export function MessageBubble({ message, onRegenerate }: MessageBubbleProps) {
                 </>
               )}
             </button>
+
+            {/* Read Aloud (Sesli Dinle) Button */}
+            {isSpeechSynthesisSupported() && (
+              <button 
+                onClick={handleToggleSpeak}
+                className={cn(
+                  "flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-medium transition-all duration-200 cursor-pointer border",
+                  isSpeaking
+                    ? "text-sky-300 bg-sky-500/20 border-sky-500/40 shadow-[0_0_12px_rgba(14,165,233,0.3)] animate-pulse"
+                    : "text-zinc-400 hover:text-zinc-200 bg-white/[0.03] hover:bg-white/[0.08] border-white/[0.06] hover:border-white/10"
+                )}
+                title={isSpeaking ? "Seslendirmeyi Durdur" : "Sesli Dinle"}
+                aria-label="Sesli Dinle"
+              >
+                {isSpeaking ? (
+                  <>
+                    <VolumeX className="w-3.5 h-3.5 text-sky-400 stroke-[2.2]" />
+                    <span className="text-[11px] text-sky-300 font-medium">Durdur</span>
+                  </>
+                ) : (
+                  <>
+                    <Volume2 className="w-3.5 h-3.5 text-zinc-400" />
+                    <span className="hidden sm:inline text-[11px]">Sesli Dinle</span>
+                  </>
+                )}
+              </button>
+            )}
 
             {/* Regenerate Button */}
             {onRegenerate && (
