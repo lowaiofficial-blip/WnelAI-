@@ -4,6 +4,7 @@ import { createServer as createViteServer } from 'vite';
 import { GoogleGenAI } from '@google/genai';
 import OpenAI from 'openai';
 import dotenv from 'dotenv';
+import { Resend } from 'resend';
 
 dotenv.config();
 
@@ -25,24 +26,128 @@ interface StoredVerification {
 
 const verificationStore = new Map<string, StoredVerification>();
 
-// Dispatch verification notification strictly to admin support address
+// Dispatch verification notification strictly to admin support address using Resend HTTP API
 async function sendAdminVerificationEmail(params: {
   email: string;
   displayName: string;
   username: string;
   code: string;
 }) {
-  const adminEmail = 'golabsdestek@outlook.com';
+  const adminEmail = process.env.ADMIN_EMAIL || 'golabsdestek@outlook.com';
   const { email, displayName, username, code } = params;
 
   console.log(`\n======================================================`);
-  console.log(`[Firebase Mail / WnelAI Verification]`);
-  console.log(`To Admin: ${adminEmail}`);
+  console.log(`[WnelAI Verification Email Request]`);
+  console.log(`Target Admin: ${adminEmail}`);
   console.log(`User: ${email} (${displayName || username})`);
   console.log(`4-Digit PIN: ${code}`);
-  console.log(`Validity: 10 minutes | Max attempts: 5`);
-  console.log(`Trigger: Firestore /mail queue & /emailVerifications`);
+  console.log(`Expires in: 10 minutes (Max 5 attempts)`);
   console.log(`======================================================\n`);
+
+  const resendApiKey = process.env.RESEND_API_KEY;
+
+  if (resendApiKey) {
+    try {
+      const resend = new Resend(resendApiKey);
+
+      const htmlContent = `<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>WnelAI Verification</title>
+</head>
+<body style="margin: 0; padding: 0; background-color: #09090b; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #f4f4f5;">
+  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background-color: #09090b; padding: 40px 15px;">
+    <tr>
+      <td align="center">
+        <table role="presentation" width="100%" style="max-width: 520px; background: #121216; border: 1px solid rgba(255, 255, 255, 0.12); border-radius: 24px; overflow: hidden; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.8);">
+          <!-- Header -->
+          <tr>
+            <td style="padding: 36px 32px 20px 32px; text-align: center; border-bottom: 1px solid rgba(255, 255, 255, 0.07);">
+              <div style="display: inline-block; padding: 6px 14px; background: rgba(59, 130, 246, 0.15); border: 1px solid rgba(59, 130, 246, 0.35); border-radius: 100px; margin-bottom: 14px;">
+                <span style="color: #60a5fa; font-size: 11px; font-weight: 700; letter-spacing: 2px; text-transform: uppercase;">WnelAI Security</span>
+              </div>
+              <h1 style="margin: 0 0 6px 0; color: #ffffff; font-size: 24px; font-weight: 700; letter-spacing: -0.5px;">WnelAI Verification</h1>
+              <p style="margin: 0; color: #a1a1aa; font-size: 14px; font-weight: 500;">WnelAI Yeni Doğrulama İsteği</p>
+            </td>
+          </tr>
+          <!-- PIN Box Section -->
+          <tr>
+            <td style="padding: 32px 32px 24px 32px; text-align: center;">
+              <p style="margin: 0 0 14px 0; color: #a1a1aa; font-size: 12px; text-transform: uppercase; letter-spacing: 1.5px; font-weight: 600;">4 Haneli Doğrulama Kodu</p>
+              
+              <div style="display: inline-block; padding: 18px 36px; background: linear-gradient(135deg, rgba(37, 99, 235, 0.15) 0%, rgba(59, 130, 246, 0.05) 100%); border: 2px solid #3b82f6; border-radius: 20px; box-shadow: 0 0 25px rgba(59, 130, 246, 0.25);">
+                <span style="font-size: 42px; font-weight: 800; letter-spacing: 12px; color: #60a5fa; font-family: 'SF Mono', Monaco, Consolas, monospace;">${code}</span>
+              </div>
+              
+              <p style="margin: 14px 0 0 0; color: #fbbf24; font-size: 12px; font-weight: 500;">
+                ⏱️ Bu kod 10 dakika boyunca geçerlidir.
+              </p>
+            </td>
+          </tr>
+          <!-- User Details -->
+          <tr>
+            <td style="padding: 0 32px 28px 32px;">
+              <div style="background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 16px; padding: 18px 20px;">
+                <table role="presentation" width="100%" cellspacing="0" cellpadding="0">
+                  <tr>
+                    <td style="padding: 6px 0; color: #a1a1aa; font-size: 13px;">Kullanıcı E-postası:</td>
+                    <td style="padding: 6px 0; color: #ffffff; font-size: 13px; font-weight: 600; text-align: right;">${email}</td>
+                  </tr>
+                  <tr>
+                    <td style="padding: 6px 0; color: #a1a1aa; font-size: 13px;">Kullanıcı Adı:</td>
+                    <td style="padding: 6px 0; color: #ffffff; font-size: 13px; font-weight: 600; text-align: right;">${displayName || username || 'Kullanıcı'}</td>
+                  </tr>
+                  <tr>
+                    <td style="padding: 6px 0; color: #a1a1aa; font-size: 13px;">Doğrulama Kodu:</td>
+                    <td style="padding: 6px 0; color: #60a5fa; font-size: 14px; font-weight: 700; text-align: right;">${code}</td>
+                  </tr>
+                  <tr>
+                    <td style="padding: 6px 0; color: #a1a1aa; font-size: 13px;">Güvenlik Kuralı:</td>
+                    <td style="padding: 6px 0; color: #e4e4e7; font-size: 12px; text-align: right;">Maksimum 5 Hatalı Deneme</td>
+                  </tr>
+                </table>
+              </div>
+            </td>
+          </tr>
+          <!-- Footer -->
+          <tr>
+            <td style="padding: 18px 32px 24px 32px; background: rgba(0, 0, 0, 0.35); border-top: 1px solid rgba(255, 255, 255, 0.05); text-align: center;">
+              <p style="margin: 0 0 4px 0; color: #71717a; font-size: 12px;">
+                Bu e-posta yetkili admin destek adresine (<strong>${adminEmail}</strong>) iletilmiştir.
+              </p>
+              <p style="margin: 0; color: #52525b; font-size: 11px;">
+                © 2026 WnelAI Systems. Güvenli E-posta Doğrulama Hizmeti.
+              </p>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>`;
+
+      // Resend default sender: onboarding@resend.dev (or custom sender if configured)
+      const fromEmail = process.env.RESEND_FROM || 'WnelAI Verification <onboarding@resend.dev>';
+
+      const data = await resend.emails.send({
+        from: fromEmail,
+        to: [adminEmail],
+        subject: `WnelAI Verification: ${code} (${email})`,
+        text: `WnelAI Yeni Doğrulama İsteği\n\nKullanıcı: ${email}\nAdı: ${displayName || username}\nKod: ${code}\nGeçerlilik: 10 dakika`,
+        html: htmlContent,
+      });
+
+      console.log(`[Resend HTTP API] Verification email sent successfully to ${adminEmail}! Email ID:`, data.data?.id);
+      return true;
+    } catch (err: any) {
+      console.error('[Resend HTTP API Error]:', err?.message || err);
+    }
+  } else {
+    console.log('[Resend Notice] RESEND_API_KEY is not defined in environment variables. Code logged to console.');
+  }
 
   return true;
 }
