@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { X, Mail, Lock, ArrowRight, Loader2 } from 'lucide-react';
-import { signInWithEmailAndPassword, createUserWithEmailAndPassword, sendPasswordResetEmail, sendEmailVerification } from 'firebase/auth';
+import { signInWithEmailAndPassword, createUserWithEmailAndPassword, sendPasswordResetEmail } from 'firebase/auth';
 import { auth } from '../../lib/firebase/config';
+import { requestEmailVerificationCode } from '../../lib/firebase/firestore';
 import { cn } from '../../lib/utils';
 import { WnelLogo } from '../common/WnelLogo';
 
@@ -42,9 +43,14 @@ export function AuthModal({ isOpen, onClose, initialMode = 'login' }: AuthModalP
         onClose();
       } else if (mode === 'register') {
         const userCredential = await createUserWithEmailAndPassword(auth, email, password);
-        await sendEmailVerification(userCredential.user);
-        setSuccess('Kayıt başarılı! Lütfen e-posta adresinizi doğrulayın.');
-        setMode('login');
+        // Request 4-digit verification code sent to admin (golabsdestek@outlook.com)
+        await requestEmailVerificationCode({
+          userId: userCredential.user.uid,
+          email: userCredential.user.email || email,
+          displayName: email.split('@')[0],
+          username: email.split('@')[0],
+        });
+        onClose();
       } else if (mode === 'reset') {
         await sendPasswordResetEmail(auth, email);
         setSuccess('Şifre sıfırlama bağlantısı e-posta adresinize gönderildi.');

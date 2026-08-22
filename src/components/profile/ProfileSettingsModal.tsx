@@ -46,7 +46,7 @@ const PRESET_AVATARS = [
 ];
 
 export function ProfileSettingsModal({ isOpen, onClose, initialTab = 'profile', onOpenGoModal }: ProfileSettingsModalProps) {
-  const { user, profile, updateProfileData, signOut, deleteAccount, isGo } = useAuth();
+  const { user, profile, updateProfileData, signOut, deleteAccount, isGo, isEmailVerified } = useAuth();
   const [activeTab, setActiveTab] = useState<'profile' | 'account' | 'notifications' | 'appearance'>(initialTab);
 
   // Profile Form state
@@ -565,10 +565,17 @@ export function ProfileSettingsModal({ isOpen, onClose, initialTab = 'profile', 
                       <div className="text-xs text-zinc-400">Kayıtlı E-posta</div>
                       <div className="text-sm font-medium text-white mt-0.5">{user?.email}</div>
                     </div>
-                    <div className="flex items-center gap-1.5 text-xs text-green-400 bg-green-500/10 px-2.5 py-1 rounded-full border border-green-500/20">
-                      <Check className="w-3.5 h-3.5" />
-                      Doğrulandı
-                    </div>
+                    {isEmailVerified ? (
+                      <div className="flex items-center gap-1.5 text-xs text-emerald-400 bg-emerald-500/10 px-2.5 py-1 rounded-full border border-emerald-500/20 font-medium">
+                        <Check className="w-3.5 h-3.5" />
+                        Doğrulandı
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-1.5 text-xs text-amber-400 bg-amber-500/10 px-2.5 py-1 rounded-full border border-amber-500/20 font-medium">
+                        <AlertCircle className="w-3.5 h-3.5" />
+                        Doğrulanmadı
+                      </div>
+                    )}
                   </div>
 
                   {/* Change Password */}

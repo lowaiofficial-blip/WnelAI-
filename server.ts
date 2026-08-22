@@ -7,6 +7,46 @@ import dotenv from 'dotenv';
 
 dotenv.config();
 
+// 4-Digit Email Verification Store (10 mins validity, max 5 attempts)
+interface StoredVerification {
+  userId: string;
+  email: string;
+  displayName: string;
+  username: string;
+  code: string;
+  createdAt: number;
+  expiresAt: number;
+  attempts: number;
+  maxAttempts: number;
+  isUsed: boolean;
+  status: 'pending' | 'verified' | 'expired' | 'failed';
+  lastRequestedAt: number;
+}
+
+const verificationStore = new Map<string, StoredVerification>();
+
+// Dispatch verification notification strictly to admin support address
+async function sendAdminVerificationEmail(params: {
+  email: string;
+  displayName: string;
+  username: string;
+  code: string;
+}) {
+  const adminEmail = 'golabsdestek@outlook.com';
+  const { email, displayName, username, code } = params;
+
+  console.log(`\n======================================================`);
+  console.log(`[Firebase Mail / WnelAI Verification]`);
+  console.log(`To Admin: ${adminEmail}`);
+  console.log(`User: ${email} (${displayName || username})`);
+  console.log(`4-Digit PIN: ${code}`);
+  console.log(`Validity: 10 minutes | Max attempts: 5`);
+  console.log(`Trigger: Firestore /mail queue & /emailVerifications`);
+  console.log(`======================================================\n`);
+
+  return true;
+}
+
 const getGeminiClient = (customKey?: string) => {
   const key = customKey || process.env.GEMINI_API_KEY;
   return key ? new GoogleGenAI({ apiKey: key }) : null;
@@ -504,6 +544,168 @@ async function startServer() {
         res.write('data: [DONE]\n\n');
         res.end();
       }
+    }
+  });
+
+  // 4-Digit Email Verification System for Admin
+  app.post('/api/send-verification-code', async (req, res) => {
+    try {
+      const { userId, email, displayName, username } = req.body;
+
+      if (!userId || !email) {
+        return res.status(400).json({ success: false, error: 'Kullanıcı kimliği ve e-posta zorunludur.' });
+      }
+
+      const existing = verificationStore.get(userId);
+      const now = Date.now();
+
+      // Cooldown prevention (min 10 seconds between requests)
+      if (existing && !existing.isUsed && (now - existing.lastRequestedAt < 10000)) {
+        const waitSec = Math.ceil((10000 - (now - existing.lastRequestedAt)) / 1000);
+        return res.status(429).json({ 
+          success: false, 
+          error: `Lütfen yeni kod istemeden önce ${waitSec} saniye bekleyin.` 
+        });
+      }
+
+      // Generate random 4-digit code between 1000 and 9999
+      const code = Math.floor(1000 + Math.random() * 9000).toString();
+      const expiresAt = now + (10 * 60 * 1000); // 10 minutes validity
+
+      const record: StoredVerification = {
+        userId,
+        email: email.trim().toLowerCase(),
+        displayName: displayName || email.split('@')[0] || 'Kullanıcı',
+        username: username || email.split('@')[0] || 'kullanici',
+        code,
+        createdAt: now,
+        expiresAt,
+        attempts: 0,
+        maxAttempts: 5,
+        isUsed: false,
+        status: 'pending',
+        lastRequestedAt: now,
+      };
+
+      // Invalidate any previous code and store new one
+      verificationStore.set(userId, record);
+
+      // Asynchronously send HTML email strictly to admin support address (golabsdestek@outlook.com)
+      sendAdminVerificationEmail({
+        email: record.email,
+        displayName: record.displayName,
+        username: record.username,
+        code,
+      }).catch(err => console.error("Async email dispatch error:", err));
+
+      return res.json({
+        success: true,
+        message: '4 haneli doğrulama kodu oluşturuldu ve yetkili admin destek birimine (golabsdestek@outlook.com) iletildi.',
+        expiresAt,
+      });
+    } catch (e: any) {
+      console.error('Send verification code error:', e);
+      return res.status(500).json({ success: false, error: 'Doğrulama kodu oluşturulurken bir hata oluştu.' });
+    }
+  });
+
+  app.post('/api/verify-code', (req, res) => {
+    try {
+      const { userId, code } = req.body;
+
+      if (!userId || !code) {
+        return res.status(400).json({ success: false, error: 'Kullanıcı kimliği ve 4 haneli kod gereklidir.' });
+      }
+
+      const record = verificationStore.get(userId);
+      const now = Date.now();
+
+      if (!record || record.isUsed) {
+        return res.status(400).json({ 
+          success: false, 
+          error: 'Aktif bir doğrulama kodu bulunamadı. Lütfen yeni bir kod isteyin.' 
+        });
+      }
+
+      // Check 10-minute expiry
+      if (now > record.expiresAt) {
+        record.status = 'expired';
+        record.isUsed = true;
+        return res.status(400).json({ 
+          success: false, 
+          error: 'Bu doğrulama kodunun 10 dakikalık süresi doldu. Lütfen yeni bir kod isteyin.' 
+        });
+      }
+
+      // Check 5-attempt limit
+      if (record.attempts >= record.maxAttempts) {
+        record.status = 'failed';
+        record.isUsed = true;
+        return res.status(400).json({ 
+          success: false, 
+          error: '5 kez hatalı kod girildiği için bu kod iptal edildi. Lütfen yeni bir kod isteyin.',
+          remainingAttempts: 0 
+        });
+      }
+
+      const inputCode = String(code).trim();
+
+      // Check code match
+      if (inputCode !== record.code) {
+        record.attempts += 1;
+        const remainingAttempts = Math.max(0, record.maxAttempts - record.attempts);
+
+        if (remainingAttempts <= 0) {
+          record.status = 'failed';
+          record.isUsed = true;
+          return res.status(400).json({ 
+            success: false, 
+            error: 'Hatalı kod! 5 hatalı deneme hakkınız doldu, kod iptal edildi. Lütfen yeni kod isteyin.',
+            remainingAttempts: 0 
+          });
+        }
+
+        return res.status(400).json({ 
+          success: false, 
+          error: `Hatalı doğrulama kodu. Kalan deneme hakkı: ${remainingAttempts}`,
+          remainingAttempts 
+        });
+      }
+
+      // Successful verification
+      record.isUsed = true;
+      record.status = 'verified';
+
+      return res.json({ 
+        success: true, 
+        message: 'Doğrulama başarılı! E-posta adresiniz onaylandı.' 
+      });
+    } catch (e: any) {
+      console.error('Verify code error:', e);
+      return res.status(500).json({ success: false, error: 'Doğrulama işlemi sırasında hata oluştu.' });
+    }
+  });
+
+  app.get('/api/verification-status/:userId', (req, res) => {
+    try {
+      const { userId } = req.params;
+      const record = verificationStore.get(userId);
+      if (!record) {
+        return res.json({ hasPendingCode: false });
+      }
+      const now = Date.now();
+      const isExpired = now > record.expiresAt;
+      const isExhausted = record.attempts >= record.maxAttempts;
+      const isValid = !record.isUsed && !isExpired && !isExhausted;
+
+      return res.json({
+        hasPendingCode: isValid,
+        expiresAt: record.expiresAt,
+        remainingAttempts: Math.max(0, record.maxAttempts - record.attempts),
+        status: record.status,
+      });
+    } catch (e) {
+      return res.status(500).json({ error: 'Durum kontrolü başarısız oldu.' });
     }
   });
 

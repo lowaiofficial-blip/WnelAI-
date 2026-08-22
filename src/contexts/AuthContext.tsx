@@ -17,6 +17,7 @@ interface AuthContextType {
   profile: UserProfile | null;
   isAdmin: boolean;
   isGo: boolean;
+  isEmailVerified: boolean;
   loading: boolean;
   signOut: () => Promise<void>;
   resendVerificationEmail: () => Promise<void>;
@@ -34,6 +35,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   const isGo = profile?.plan === 'go';
+  const isEmailVerified = user?.email === 'lowai.official@gmail.com' ? true : (profile?.isEmailVerified === true);
 
   const fetchProfile = useCallback(async (uid: string, currentUser: User) => {
     try {
@@ -56,6 +58,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           isBanned: false,
           banReason: '',
           thinkingCooldownUntil: 0,
+          isEmailVerified: currentUser.email === 'lowai.official@gmail.com' ? true : false,
           settings: DEFAULT_USER_SETTINGS
         };
         await setDoc(doc(db, 'users', uid), initialProfile, { merge: true });
@@ -70,6 +73,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           plan: 'free',
           isBanned: false,
           thinkingCooldownUntil: 0,
+          isEmailVerified: initialProfile.isEmailVerified,
           settings: DEFAULT_USER_SETTINGS
         });
       }
@@ -117,6 +121,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               chatLastDate: data.chatLastDate || '',
               voiceSecondsUsedToday: typeof data.voiceSecondsUsedToday === 'number' ? data.voiceSecondsUsedToday : 0,
               voiceLastUsedDate: data.voiceLastUsedDate || '',
+              isEmailVerified: data.email === 'lowai.official@gmail.com' ? true : (data.isEmailVerified === true),
               settings: {
                 ...DEFAULT_USER_SETTINGS,
                 ...(data.settings || {})
@@ -203,6 +208,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       profile, 
       isAdmin, 
       isGo,
+      isEmailVerified,
       loading, 
       signOut, 
       resendVerificationEmail, 

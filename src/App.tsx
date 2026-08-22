@@ -34,6 +34,7 @@ import { AuthModal } from './components/auth/AuthModal';
 import { ModelSelectorSheet } from './components/chat/ModelSelectorSheet';
 import { VoiceModeModal } from './components/chat/VoiceModeModal';
 import { TestAccessGate } from './components/auth/TestAccessGate';
+import { EmailVerificationGate } from './components/auth/EmailVerificationGate';
 import { 
   getThinkingCooldownUntil, 
   setThinkingCooldown, 
@@ -44,7 +45,7 @@ import {
 import { checkChatLimit, checkThinkingLimit, incrementDailyUsage } from './lib/usageLimits';
 
 export default function App() {
-  const { user, profile, isAdmin, updateProfileData, isGo } = useAuth();
+  const { user, profile, isAdmin, updateProfileData, isGo, isEmailVerified, refreshProfile } = useAuth();
   const [hasTestAccess, setHasTestAccess] = useState<boolean>(() => {
     return localStorage.getItem('wnelai_test_access_granted') === 'true';
   });
@@ -669,21 +670,8 @@ export default function App() {
                   </button>
                 </div>
               </div>
-            ) : user && !user.emailVerified ? (
-              <div className="flex flex-col items-center justify-center min-h-[60vh] opacity-0 animate-[fadeIn_0.6s_ease-out_forwards]">
-                <div className="bg-[#141418] border border-white/10 rounded-3xl p-8 text-center max-w-md shadow-2xl">
-                  <div className="w-12 h-12 rounded-2xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-center mx-auto mb-4 text-blue-400">
-                    <Mail className="w-6 h-6" />
-                  </div>
-                  <h2 className="text-xl font-semibold text-white mb-2">E-posta doğrulaması gerekli</h2>
-                  <p className="text-sm text-zinc-400 mb-4 leading-relaxed">
-                    Sohbet edebilmek ve tüm özellikleri kullanabilmek için lütfen e-posta adresinize gelen doğrulama bağlantısına tıklayın.
-                  </p>
-                  <div className="text-xs text-zinc-500 bg-white/5 py-2 px-3 rounded-xl border border-white/5">
-                    Gelen kutunuzu (ve gerekiyorsa spam klasörünü) kontrol edin.
-                  </div>
-                </div>
-              </div>
+            ) : user && !isEmailVerified ? (
+              <EmailVerificationGate onVerified={() => refreshProfile()} />
             ) : isChatLoading ? (
               <div className="flex flex-col items-center justify-center h-[60vh]">
                 <Loader2 className="w-8 h-8 text-blue-400 animate-spin" />
@@ -782,7 +770,7 @@ export default function App() {
         {/* Bottom Bar: Interactive input if logged in, sleek CTA if logged out */}
         <div className="absolute bottom-0 left-0 w-full bg-gradient-to-t from-[#0a0a0a] via-[#0a0a0a]/95 to-transparent pt-10 pb-4 px-3 sm:px-4">
           <div className="max-w-4xl mx-auto">
-            {user && user.emailVerified && !profile?.isBanned ? (
+            {user && isEmailVerified && !profile?.isBanned ? (
               <InputArea 
                 onSend={handleSendMessage} 
                 isLoading={isLoading} 

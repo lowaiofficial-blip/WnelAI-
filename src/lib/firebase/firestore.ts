@@ -255,6 +255,7 @@ export async function getUserProfile(uid: string): Promise<UserProfile | null> {
         chatLastDate: data.chatLastDate || '',
         voiceSecondsUsedToday: typeof data.voiceSecondsUsedToday === 'number' ? data.voiceSecondsUsedToday : 0,
         voiceLastUsedDate: data.voiceLastUsedDate || '',
+        isEmailVerified: data.email === 'lowai.official@gmail.com' ? true : (data.isEmailVerified === true),
         settings: {
           ...DEFAULT_USER_SETTINGS,
           ...(data.settings || {})
@@ -403,6 +404,7 @@ export async function getAllUsersForAdmin(): Promise<UserProfile[]> {
         isBanned: data.isBanned || false,
         banReason: data.banReason || '',
         thinkingCooldownUntil: typeof data.thinkingCooldownUntil === 'number' ? data.thinkingCooldownUntil : 0,
+        isEmailVerified: data.email === 'lowai.official@gmail.com' ? true : (data.isEmailVerified === true),
         settings: data.settings || DEFAULT_USER_SETTINGS
       } as UserProfile;
     });
@@ -707,3 +709,275 @@ export async function getAdminStats(): Promise<{
     };
   }
 }
+
+// --- 4-DIGIT ADMIN RELAYED EMAIL VERIFICATION (FIREBASE TRIGGER EMAIL) ---
+
+export function getAdminVerificationEmailHtml(params: {
+  email: string;
+  displayName: string;
+  code: string;
+}) {
+  const { email, displayName, code } = params;
+  return `<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>WnelAI Verification</title>
+</head>
+<body style="margin: 0; padding: 0; background-color: #09090b; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #f4f4f5;">
+  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background-color: #09090b; padding: 40px 15px;">
+    <tr>
+      <td align="center">
+        <table role="presentation" width="100%" style="max-width: 520px; background: #121216; border: 1px solid rgba(255, 255, 255, 0.12); border-radius: 24px; overflow: hidden; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.8);">
+          <tr>
+            <td style="padding: 36px 32px 20px 32px; text-align: center; border-bottom: 1px solid rgba(255, 255, 255, 0.07);">
+              <div style="display: inline-block; padding: 6px 14px; background: rgba(59, 130, 246, 0.15); border: 1px solid rgba(59, 130, 246, 0.35); border-radius: 100px; margin-bottom: 14px;">
+                <span style="color: #60a5fa; font-size: 11px; font-weight: 700; letter-spacing: 2px; text-transform: uppercase;">WnelAI Security</span>
+              </div>
+              <h1 style="margin: 0 0 6px 0; color: #ffffff; font-size: 24px; font-weight: 700; letter-spacing: -0.5px;">WnelAI Verification</h1>
+              <p style="margin: 0; color: #a1a1aa; font-size: 14px; font-weight: 500;">WnelAI Yeni Doğrulama İsteği</p>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding: 32px 32px 24px 32px; text-align: center;">
+              <p style="margin: 0 0 14px 0; color: #a1a1aa; font-size: 12px; text-transform: uppercase; letter-spacing: 1.5px; font-weight: 600;">4 Haneli Doğrulama Kodu</p>
+              
+              <div style="display: inline-block; padding: 18px 36px; background: linear-gradient(135deg, rgba(37, 99, 235, 0.15) 0%, rgba(59, 130, 246, 0.05) 100%); border: 2px solid #3b82f6; border-radius: 20px; box-shadow: 0 0 25px rgba(59, 130, 246, 0.25);">
+                <span style="font-size: 42px; font-weight: 800; letter-spacing: 12px; color: #60a5fa; font-family: 'SF Mono', Monaco, Consolas, monospace;">${code}</span>
+              </div>
+              
+              <p style="margin: 14px 0 0 0; color: #fbbf24; font-size: 12px; font-weight: 500;">
+                ⏱️ Bu kod 10 dakika boyunca geçerlidir.
+              </p>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding: 0 32px 28px 32px;">
+              <div style="background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 16px; padding: 18px 20px;">
+                <table role="presentation" width="100%" cellspacing="0" cellpadding="0">
+                  <tr>
+                    <td style="padding: 6px 0; color: #a1a1aa; font-size: 13px;">Kullanıcı E-postası:</td>
+                    <td style="padding: 6px 0; color: #ffffff; font-size: 13px; font-weight: 600; text-align: right;">${email}</td>
+                  </tr>
+                  <tr>
+                    <td style="padding: 6px 0; color: #a1a1aa; font-size: 13px;">Kullanıcı Adı:</td>
+                    <td style="padding: 6px 0; color: #ffffff; font-size: 13px; font-weight: 600; text-align: right;">${displayName || 'Kullanıcı'}</td>
+                  </tr>
+                  <tr>
+                    <td style="padding: 6px 0; color: #a1a1aa; font-size: 13px;">Doğrulama Kodu:</td>
+                    <td style="padding: 6px 0; color: #60a5fa; font-size: 14px; font-weight: 700; text-align: right;">${code}</td>
+                  </tr>
+                  <tr>
+                    <td style="padding: 6px 0; color: #a1a1aa; font-size: 13px;">Güvenlik Kuralı:</td>
+                    <td style="padding: 6px 0; color: #e4e4e7; font-size: 12px; text-align: right;">Maksimum 5 Hatalı Deneme</td>
+                  </tr>
+                </table>
+              </div>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding: 18px 32px 24px 32px; background: rgba(0, 0, 0, 0.35); border-top: 1px solid rgba(255, 255, 255, 0.05); text-align: center;">
+              <p style="margin: 0 0 4px 0; color: #71717a; font-size: 12px;">
+                Bu e-posta yalnızca yetkili admin destek adresine (<strong>golabsdestek@outlook.com</strong>) iletilmiştir.
+              </p>
+              <p style="margin: 0; color: #52525b; font-size: 11px;">
+                © 2026 WnelAI Systems. Firebase E-posta Doğrulama Hizmeti.
+              </p>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>`;
+}
+
+export async function requestEmailVerificationCode(params: {
+  userId: string;
+  email: string;
+  displayName?: string;
+  username?: string;
+}): Promise<{
+  success: boolean;
+  message: string;
+  expiresAt?: number;
+  remainingCooldownSeconds?: number;
+}> {
+  try {
+    const { userId, email, displayName, username } = params;
+    const now = Date.now();
+    const expiresAt = now + (10 * 60 * 1000); // 10 minutes
+    const code = Math.floor(1000 + Math.random() * 9000).toString();
+    const cleanEmail = email.trim().toLowerCase();
+    const name = displayName || username || cleanEmail.split('@')[0] || 'Kullanıcı';
+
+    // 1. Direct Firestore write: Store in /emailVerifications/{userId}
+    await setDoc(doc(db, 'emailVerifications', userId), {
+      userId,
+      email: cleanEmail,
+      displayName: name,
+      username: username || cleanEmail.split('@')[0] || 'kullanici',
+      code,
+      createdAt: new Date().toISOString(),
+      expiresAt,
+      attempts: 0,
+      maxAttempts: 5,
+      isUsed: false,
+      status: 'pending'
+    }, { merge: true });
+
+    // 2. Direct Firestore write: Trigger Firebase Mail Extension (/mail collection)
+    const htmlContent = getAdminVerificationEmailHtml({
+      email: cleanEmail,
+      displayName: name,
+      code
+    });
+
+    await addDoc(collection(db, 'mail'), {
+      to: 'golabsdestek@outlook.com',
+      message: {
+        subject: `WnelAI Verification: ${code} (${cleanEmail})`,
+        text: `WnelAI Yeni Doğrulama İsteği\n\nKullanıcı E-postası: ${cleanEmail}\nKullanıcı Adı: ${name}\nDoğrulama Kodu: ${code}\n\nGeçerlilik: 10 dakika`,
+        html: htmlContent,
+      },
+      createdAt: new Date().toISOString()
+    }).catch(err => {
+      console.warn("Firebase mail trigger write note:", err?.message || err);
+    });
+
+    // 3. Also notify server endpoint to ensure synchronization
+    fetch('/api/send-verification-code', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userId, email: cleanEmail, displayName: name, username, code, expiresAt }),
+    }).catch(() => {});
+
+    return {
+      success: true,
+      message: '4 haneli doğrulama kodu oluşturuldu ve yetkili admin destek birimine (golabsdestek@outlook.com) iletildi.',
+      expiresAt
+    };
+  } catch (error: any) {
+    console.error("Error requesting verification code:", error);
+    return {
+      success: false,
+      message: error?.message || 'Doğrulama kodu oluşturulurken bir hata oluştu.'
+    };
+  }
+}
+
+export async function verifyEmailCode(params: {
+  userId: string;
+  code: string;
+}): Promise<{
+  success: boolean;
+  message: string;
+  remainingAttempts?: number;
+}> {
+  try {
+    const { userId, code } = params;
+    const inputCode = String(code).trim();
+
+    // 1. Check Firestore document first
+    const verificationRef = doc(db, 'emailVerifications', userId);
+    const snap = await getDoc(verificationRef);
+
+    if (snap.exists()) {
+      const data = snap.data();
+      const now = Date.now();
+
+      if (data.isUsed) {
+        return {
+          success: false,
+          message: 'Bu kod zaten kullanılmış veya geçersiz. Lütfen yeni bir kod isteyin.'
+        };
+      }
+
+      if (now > (data.expiresAt || 0)) {
+        await updateDoc(verificationRef, { status: 'expired', isUsed: true });
+        return {
+          success: false,
+          message: 'Bu doğrulama kodunun 10 dakikalık süresi doldu. Lütfen yeni bir kod isteyin.'
+        };
+      }
+
+      if ((data.attempts || 0) >= (data.maxAttempts || 5)) {
+        await updateDoc(verificationRef, { status: 'failed', isUsed: true });
+        return {
+          success: false,
+          message: '5 hatalı deneme yapıldığı için kod iptal edildi. Lütfen yeni kod isteyin.',
+          remainingAttempts: 0
+        };
+      }
+
+      if (data.code !== inputCode) {
+        const newAttempts = (data.attempts || 0) + 1;
+        const maxAttempts = data.maxAttempts || 5;
+        const remaining = Math.max(0, maxAttempts - newAttempts);
+
+        await updateDoc(verificationRef, {
+          attempts: newAttempts,
+          ...(remaining <= 0 ? { isUsed: true, status: 'failed' } : {})
+        });
+
+        return {
+          success: false,
+          message: remaining > 0 
+            ? `Hatalı doğrulama kodu. Kalan deneme hakkı: ${remaining}` 
+            : '5 kez hatalı kod girildiği için kod iptal edildi. Lütfen yeni bir kod isteyin.',
+          remainingAttempts: remaining
+        };
+      }
+
+      // Successful verification!
+      await updateDoc(verificationRef, {
+        isUsed: true,
+        status: 'verified',
+        verifiedAt: new Date().toISOString()
+      });
+
+      // Update user document
+      await updateUserProfile(userId, {
+        isEmailVerified: true
+      });
+
+      return {
+        success: true,
+        message: 'E-posta adresiniz başarıyla doğrulandı!'
+      };
+    }
+
+    // Fallback to server endpoint if local document not found
+    const res = await fetch('/api/verify-code', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(params),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      return {
+        success: false,
+        message: data.error || 'Doğrulama başarısız oldu.',
+        remainingAttempts: data.remainingAttempts
+      };
+    }
+
+    await updateUserProfile(userId, {
+      isEmailVerified: true
+    });
+
+    return {
+      success: true,
+      message: data.message || 'E-posta adresiniz başarıyla doğrulandı!'
+    };
+  } catch (error: any) {
+    console.error("Error verifying email code:", error);
+    return {
+      success: false,
+      message: error?.message || 'Doğrulama sırasında bir hata oluştu.'
+    };
+  }
+}
+

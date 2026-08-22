@@ -42,7 +42,23 @@ export interface UserProfile {
   chatLastDate?: string;
   voiceSecondsUsedToday?: number;
   voiceLastUsedDate?: string;
+  isEmailVerified?: boolean;
   settings?: UserSettings;
+}
+
+export interface EmailVerification {
+  userId: string;
+  email: string;
+  displayName?: string;
+  username?: string;
+  code?: string;
+  createdAt: any;
+  expiresAt: number;
+  attempts: number;
+  maxAttempts: number;
+  isUsed: boolean;
+  status: 'pending' | 'verified' | 'expired' | 'failed';
+  verifiedAt?: any;
 }
 
 export interface VipClaim {

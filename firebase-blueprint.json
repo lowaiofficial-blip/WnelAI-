@@ -24,9 +24,29 @@
         "chatLastDate": { "type": "string" },
         "voiceSecondsUsedToday": { "type": "number" },
         "voiceLastUsedDate": { "type": "string" },
+        "isEmailVerified": { "type": "boolean" },
         "settings": { "type": "object" }
       },
       "required": ["email"]
+    },
+    "EmailVerification": {
+      "title": "EmailVerification",
+      "description": "4-digit admin-relayed email verification codes",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "email": { "type": "string" },
+        "displayName": { "type": "string" },
+        "username": { "type": "string" },
+        "code": { "type": "string", "maxLength": 4, "minLength": 4 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "expiresAt": { "type": "number" },
+        "attempts": { "type": "number" },
+        "maxAttempts": { "type": "number" },
+        "isUsed": { "type": "boolean" },
+        "status": { "type": "string", "enum": ["pending", "verified", "expired", "failed"] }
+      },
+      "required": ["userId", "email", "code", "expiresAt", "attempts", "isUsed", "status"]
     },
     "VipClaim": {
       "title": "VipClaim",
@@ -91,6 +111,24 @@
         "updatedAt": { "type": "string", "format": "date-time" }
       },
       "required": ["role", "content"]
+    },
+    "Mail": {
+      "title": "Mail",
+      "description": "Firebase Trigger Email extension collection",
+      "type": "object",
+      "properties": {
+        "to": { "type": "string" },
+        "message": {
+          "type": "object",
+          "properties": {
+            "subject": { "type": "string" },
+            "text": { "type": "string" },
+            "html": { "type": "string" }
+          }
+        },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["to", "message"]
     }
   },
   "firestore": {
@@ -117,6 +155,14 @@
     "/vipCampaign/{campaignId}": {
       "schema": "VipCampaign",
       "description": "Campaign quota tracker"
+    },
+    "/emailVerifications/{userId}": {
+      "schema": "EmailVerification",
+      "description": "User email verification record and 4-digit pin"
+    },
+    "/mail/{mailId}": {
+      "schema": "Mail",
+      "description": "Firebase Trigger Email dispatch queue"
     }
   }
 }

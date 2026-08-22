@@ -569,6 +569,15 @@ export function AdminPanelModal({ isOpen, onClose }: AdminPanelModalProps) {
                               {isGoUser && (
                                 <GoBadge size="xs" />
                               )}
+                              {u.isEmailVerified ? (
+                                <span className="text-[10px] bg-emerald-500/20 text-emerald-400 font-semibold px-1.5 py-0.5 rounded border border-emerald-500/30 flex items-center gap-1">
+                                  <Check className="w-2.5 h-2.5" /> Doğrulandı
+                                </span>
+                              ) : (
+                                <span className="text-[10px] bg-amber-500/20 text-amber-400 font-semibold px-1.5 py-0.5 rounded border border-amber-500/30 flex items-center gap-1">
+                                  <Clock className="w-2.5 h-2.5" /> Onay Bekliyor
+                                </span>
+                              )}
                               {isRootAdmin && (
                                 <span className="text-[10px] bg-purple-500/20 text-purple-400 font-semibold px-1.5 py-0.5 rounded border border-purple-500/30">
                                   Admin
