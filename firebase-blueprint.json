@@ -129,12 +129,27 @@
         "createdAt": { "type": "string", "format": "date-time" }
       },
       "required": ["to", "message"]
+    },
+    "BrandingSettings": {
+      "title": "BrandingSettings",
+      "description": "Customizable branding assets (logo, favicon)",
+      "type": "object",
+      "properties": {
+        "logoUrl": { "type": "string" },
+        "faviconUrl": { "type": "string" },
+        "updatedAt": { "type": "string", "format": "date-time" },
+        "updatedBy": { "type": "string" }
+      }
     }
   },
   "firestore": {
     "/users/{userId}": {
       "schema": "User",
       "description": "User profile documents"
+    },
+    "/settings/{settingId}": {
+      "schema": "BrandingSettings",
+      "description": "Global application branding settings"
     },
     "/admins/{adminId}": {
       "schema": "Admin",

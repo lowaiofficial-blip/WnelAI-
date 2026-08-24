@@ -224,7 +224,8 @@ async function startServer() {
   const app = express();
   const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
 
-  app.use(express.json());
+  app.use(express.json({ limit: '20mb' }));
+  app.use(express.urlencoded({ extended: true, limit: '20mb' }));
 
   // Health status generator
   const fetchHealthData = async () => {
@@ -922,6 +923,72 @@ ${messages.slice(0, 4).map((m: any) => `${m.role === 'user' ? 'Kullanıcı' : 'A
     } catch (error) {
       console.error('Title generation error:', error);
       res.json({ title: "Yeni Sohbet" });
+    }
+  });
+
+  // ImgBB Asset Upload for Logo & Favicon Management
+  app.post('/api/admin/upload-branding-asset', async (req, res) => {
+    try {
+      const { image, filename, type } = req.body;
+
+      if (!image) {
+        return res.status(400).json({ success: false, error: 'Görsel verisi (base64) bulunamadı.' });
+      }
+
+      const imgbbApiKey = process.env.IMGBB_API_KEY;
+
+      if (!imgbbApiKey) {
+        return res.status(400).json({
+          success: false,
+          error: 'IMGBB_API_KEY ortam değişkeni tanımlanmamış. Lütfen AI Studio veya sunucu ortam değişkenlerine geçerli bir ImgBB API anahtarı ekleyin.'
+        });
+      }
+
+      // Clean base64 header if present (e.g. data:image/png;base64,....)
+      const base64Data = image.replace(/^data:image\/[a-z0-9+.-]+;base64,/i, '');
+
+      const formParams = new URLSearchParams();
+      formParams.append('image', base64Data);
+      if (filename) {
+        formParams.append('name', filename);
+      }
+
+      const imgbbResponse = await fetch(`https://api.imgbb.com/1/upload?key=${imgbbApiKey}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: formParams.toString(),
+      });
+
+      const data: any = await imgbbResponse.json();
+
+      if (!imgbbResponse.ok || !data.success) {
+        console.error('ImgBB Upload Error:', data);
+        return res.status(imgbbResponse.status || 500).json({
+          success: false,
+          error: data?.error?.message || 'Görsel ImgBB servisine yüklenirken bir hata oluştu.'
+        });
+      }
+
+      const directUrl = data.data.url;
+      const displayUrl = data.data.display_url || directUrl;
+      const deleteUrl = data.data.delete_url;
+
+      return res.json({
+        success: true,
+        url: directUrl,
+        displayUrl,
+        deleteUrl,
+        type: type || 'logo',
+        timestamp: Date.now()
+      });
+    } catch (error: any) {
+      console.error('Upload branding asset server error:', error);
+      return res.status(500).json({
+        success: false,
+        error: error.message || 'Görsel yükleme işlemi sırasında beklenmeyen bir hata oluştu.'
+      });
     }
   });
 

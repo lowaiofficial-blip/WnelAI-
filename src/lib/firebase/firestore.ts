@@ -16,7 +16,7 @@ import {
   runTransaction
 } from 'firebase/firestore';
 import { db, auth } from './config';
-import { UserProfile, UserSettings, VipClaim, VipCampaign } from '../../types';
+import { UserProfile, UserSettings, VipClaim, VipCampaign, BrandingSettings } from '../../types';
 
 export enum OperationType {
   CREATE = 'create',
@@ -889,6 +889,112 @@ export async function verifyEmailCode(params: {
     return {
       success: false,
       message: error?.message || 'Doğrulama sırasında bir hata oluştu.'
+    };
+  }
+}
+
+// --------------------------------------------------------------------------
+// BRANDING ASSETS MANAGEMENT (Logo & Favicon)
+// --------------------------------------------------------------------------
+
+export const DEFAULT_BRANDING_LOGO = '/logo.png?v=8';
+export const DEFAULT_BRANDING_FAVICON = '/favicon.ico';
+
+export async function getBrandingSettings(): Promise<BrandingSettings> {
+  try {
+    const docRef = doc(db, 'settings', 'branding');
+    const docSnap = await getDoc(docRef);
+    if (docSnap.exists()) {
+      return docSnap.data() as BrandingSettings;
+    }
+    return {
+      logoUrl: DEFAULT_BRANDING_LOGO,
+      faviconUrl: DEFAULT_BRANDING_FAVICON,
+      updatedAt: Date.now()
+    };
+  } catch (error) {
+    console.warn("Could not fetch branding settings, using defaults:", error);
+    return {
+      logoUrl: DEFAULT_BRANDING_LOGO,
+      faviconUrl: DEFAULT_BRANDING_FAVICON,
+      updatedAt: Date.now()
+    };
+  }
+}
+
+export function subscribeToBrandingSettings(callback: (settings: BrandingSettings) => void) {
+  try {
+    const docRef = doc(db, 'settings', 'branding');
+    return onSnapshot(docRef, (docSnap) => {
+      if (docSnap.exists()) {
+        callback(docSnap.data() as BrandingSettings);
+      } else {
+        callback({
+          logoUrl: DEFAULT_BRANDING_LOGO,
+          faviconUrl: DEFAULT_BRANDING_FAVICON,
+          updatedAt: Date.now()
+        });
+      }
+    }, (error) => {
+      console.warn("Branding settings snapshot error:", error);
+      callback({
+        logoUrl: DEFAULT_BRANDING_LOGO,
+        faviconUrl: DEFAULT_BRANDING_FAVICON,
+        updatedAt: Date.now()
+      });
+    });
+  } catch (e) {
+    console.warn("Failed to subscribe to branding settings:", e);
+    return () => {};
+  }
+}
+
+export async function updateBrandingSettings(settings: Partial<BrandingSettings>): Promise<{ success: boolean; message?: string }> {
+  try {
+    const docRef = doc(db, 'settings', 'branding');
+    const user = auth.currentUser;
+
+    const dataToSave = {
+      ...settings,
+      updatedAt: Date.now(),
+      updatedBy: user?.email || user?.uid || 'admin'
+    };
+
+    await setDoc(docRef, dataToSave, { merge: true });
+    return { success: true, message: 'Marka varlıkları başarıyla güncellendi.' };
+  } catch (error: any) {
+    console.error("Error updating branding settings:", error);
+    handleFirestoreError(error, OperationType.WRITE, 'settings/branding');
+    return { success: false, message: error?.message || 'Marka varlıkları kaydedilemedi.' };
+  }
+}
+
+export async function uploadBrandingAsset(params: {
+  image: string;
+  type: 'logo' | 'favicon';
+  filename?: string;
+}): Promise<{
+  success: boolean;
+  url?: string;
+  displayUrl?: string;
+  error?: string;
+}> {
+  try {
+    const response = await fetch('/api/admin/upload-branding-asset', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(params)
+    });
+
+    const data = await response.json();
+    return data;
+  } catch (err: any) {
+    console.error("Upload branding asset client error:", err);
+    return {
+      success: false,
+      error: err?.message || 'Görsel yüklenirken bir ağ hatası oluştu.'
     };
   }
 }

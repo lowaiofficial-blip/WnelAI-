@@ -29,7 +29,8 @@ import {
   Sparkles,
   CheckCircle2,
   XCircle,
-  AlertTriangle
+  AlertTriangle,
+  Palette
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { cn } from '../../lib/utils';
@@ -51,6 +52,7 @@ import {
 import { WnelLogo } from '../common/WnelLogo';
 import { GoBadge } from '../common/GoBadge';
 import { getLocalFormattedTime } from '../../lib/thinkingCooldown';
+import { AdminBrandingTab } from './AdminBrandingTab';
 
 interface AdminPanelModalProps {
   isOpen: boolean;
@@ -61,7 +63,7 @@ export function AdminPanelModal({ isOpen, onClose }: AdminPanelModalProps) {
   const { user, isAdmin } = useAuth();
   
   // Navigation Tabs
-  const [adminTab, setAdminTab] = useState<'users' | 'vip_claims'>('users');
+  const [adminTab, setAdminTab] = useState<'users' | 'vip_claims' | 'branding'>('users');
 
   // Data state
   const [users, setUsers] = useState<UserProfile[]>([]);
@@ -443,6 +445,19 @@ export function AdminPanelModal({ isOpen, onClose }: AdminPanelModalProps) {
             <span className="text-[10px] bg-amber-500/30 text-amber-200 px-2 py-0.5 rounded-full font-mono font-bold">
               {vipClaims.length} / 5
             </span>
+          </button>
+
+          <button
+            onClick={() => setAdminTab('branding')}
+            className={cn(
+              "px-3.5 py-2 rounded-xl text-xs sm:text-sm font-semibold transition-all flex items-center gap-2 cursor-pointer relative",
+              adminTab === 'branding' 
+                ? "bg-sky-500/20 text-sky-300 border border-sky-500/40 shadow-sm" 
+                : "text-zinc-400 hover:text-white hover:bg-white/5"
+            )}
+          >
+            <Palette className="w-4 h-4 text-sky-400" />
+            <span>Marka Varlıkları</span>
           </button>
         </div>
 
@@ -848,6 +863,11 @@ export function AdminPanelModal({ isOpen, onClose }: AdminPanelModalProps) {
               </div>
             )}
           </div>
+        )}
+
+        {/* TAB 3: BRANDING ASSETS */}
+        {adminTab === 'branding' && (
+          <AdminBrandingTab />
         )}
 
         {/* ----------------- SUB-MODAL 1: USER PROFILE DETAIL ----------------- */}

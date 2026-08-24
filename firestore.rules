@@ -69,6 +69,12 @@ service cloud.firestore {
       allow read: if isAdmin();
     }
 
+    // Settings collection (Branding, App configuration)
+    match /settings/{settingId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
     // Chats collection
     match /chats/{chatId} {
       allow read, list: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin());

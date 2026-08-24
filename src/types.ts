@@ -81,6 +81,13 @@ export interface VipCampaign {
   updatedAt: any;
 }
 
+export interface BrandingSettings {
+  logoUrl?: string;
+  faviconUrl?: string;
+  updatedAt?: string | number | any;
+  updatedBy?: string;
+}
+
 export const AVAILABLE_MODELS: Model[] = [
   {
     id: 'qwen/qwen-plus',

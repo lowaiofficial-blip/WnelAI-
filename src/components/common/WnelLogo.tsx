@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { cn } from '../../lib/utils';
 import { Sparkles } from 'lucide-react';
+import { useBranding } from '../../contexts/BrandingContext';
 
 export const WNEL_LOGO_URL = '/logo.png?v=8';
 
@@ -12,6 +13,7 @@ interface WnelLogoProps {
   showBadge?: boolean;
   textClassName?: string;
   alt?: string;
+  customSrc?: string;
 }
 
 const sizeClasses: Record<string, string> = {
@@ -30,9 +32,17 @@ export function WnelLogo({
   showText = false,
   showBadge = false,
   textClassName = '',
-  alt = 'WnelAI Logo'
+  alt = 'WnelAI Logo',
+  customSrc
 }: WnelLogoProps) {
+  const { getBustedLogoUrl } = useBranding();
   const [hasError, setHasError] = useState(false);
+  const activeLogoSrc = customSrc || getBustedLogoUrl();
+
+  // Reset error when logo source changes
+  useEffect(() => {
+    setHasError(false);
+  }, [activeLogoSrc]);
 
   const containerSize = sizeClasses[size] || sizeClasses.md;
 
@@ -45,7 +55,8 @@ export function WnelLogo({
       )}>
         {!hasError ? (
           <img
-            src={WNEL_LOGO_URL}
+            key={activeLogoSrc}
+            src={activeLogoSrc}
             alt={alt}
             onError={() => setHasError(true)}
             className="w-full h-full object-contain pointer-events-none"
@@ -95,3 +106,4 @@ export function WnelLogo({
     </div>
   );
 }
+
