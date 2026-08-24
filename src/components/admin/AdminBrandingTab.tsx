@@ -17,12 +17,69 @@ import {
   Sliders,
   ShieldCheck,
   Zap,
-  Info
+  Info,
+  Link as LinkIcon,
+  HelpCircle
 } from 'lucide-react';
 import { useBranding } from '../../contexts/BrandingContext';
 import { uploadBrandingAsset, DEFAULT_BRANDING_LOGO, DEFAULT_BRANDING_FAVICON } from '../../lib/firebase/firestore';
 import { WnelLogo } from '../common/WnelLogo';
 import { cn } from '../../lib/utils';
+
+// Helper to optimize and compress image to a lightweight Base64 string for direct Firestore persistence
+async function compressImageToDataUrl(
+  fileOrUrl: File | string,
+  maxWidth: number = 400,
+  maxHeight: number = 400,
+  mimeType: string = 'image/png'
+): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => {
+      let { width, height } = img;
+      if (width > maxWidth || height > maxHeight) {
+        if (width / height > maxWidth / maxHeight) {
+          height = Math.round((height * maxWidth) / width);
+          width = maxWidth;
+        } else {
+          width = Math.round((width * maxHeight) / height);
+          height = maxHeight;
+        }
+      }
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.max(1, width);
+      canvas.height = Math.max(1, height);
+      const ctx = canvas.getContext('2d');
+      if (!ctx) {
+        resolve(typeof fileOrUrl === 'string' ? fileOrUrl : '');
+        return;
+      }
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = 'high';
+      ctx.drawImage(img, 0, 0, width, height);
+      resolve(canvas.toDataURL(mimeType));
+    };
+    img.onerror = () => {
+      if (typeof fileOrUrl === 'string') {
+        resolve(fileOrUrl);
+      } else {
+        reject(new Error('Görsel okunamadı veya formatı desteklenmiyor.'));
+      }
+    };
+
+    if (typeof fileOrUrl === 'string') {
+      img.src = fileOrUrl;
+    } else {
+      const reader = new FileReader();
+      reader.onload = () => {
+        img.src = reader.result as string;
+      };
+      reader.onerror = () => reject(new Error('Dosya yüklenirken hata oluştu.'));
+      reader.readAsDataURL(fileOrUrl);
+    }
+  });
+}
 
 export function AdminBrandingTab() {
   const { 
@@ -37,9 +94,14 @@ export function AdminBrandingTab() {
     getBustedFaviconUrl
   } = useBranding();
 
+  // Mode: 'file' | 'url'
+  const [logoInputMode, setLogoInputMode] = useState<'file' | 'url'>('file');
+  const [faviconInputMode, setFaviconInputMode] = useState<'file' | 'url'>('file');
+
   // Logo state
   const [logoFile, setLogoFile] = useState<File | null>(null);
   const [logoPreview, setLogoPreview] = useState<string | null>(null);
+  const [customLogoUrl, setCustomLogoUrl] = useState('');
   const [isUploadingLogo, setIsUploadingLogo] = useState(false);
   const [logoError, setLogoError] = useState<string | null>(null);
   const [logoSuccess, setLogoSuccess] = useState<string | null>(null);
@@ -48,6 +110,7 @@ export function AdminBrandingTab() {
   // Favicon state
   const [faviconFile, setFaviconFile] = useState<File | null>(null);
   const [faviconPreview, setFaviconPreview] = useState<string | null>(null);
+  const [customFaviconUrl, setCustomFaviconUrl] = useState('');
   const [isUploadingFavicon, setIsUploadingFavicon] = useState(false);
   const [faviconError, setFaviconError] = useState<string | null>(null);
   const [faviconSuccess, setFaviconSuccess] = useState<string | null>(null);
@@ -63,87 +126,108 @@ export function AdminBrandingTab() {
   };
 
   // ---------------- Logo File Selection ----------------
-  const handleLogoSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleLogoSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     setLogoError(null);
     setLogoSuccess(null);
     const file = e.target.files?.[0];
     if (!file) return;
 
-    // Check type
     const validTypes = ['image/png', 'image/jpeg', 'image/jpg', 'image/webp', 'image/svg+xml'];
     if (!validTypes.includes(file.type)) {
       setLogoError('Lütfen geçerli bir görsel formatı seçin (PNG, JPG, WEBP veya SVG).');
       return;
     }
 
-    // Check size (max 6MB)
-    if (file.size > 6 * 1024 * 1024) {
-      setLogoError('Görsel boyutu 6MB\'dan küçük olmalıdır.');
+    if (file.size > 8 * 1024 * 1024) {
+      setLogoError('Görsel boyutu 8MB\'dan küçük olmalıdır.');
       return;
     }
 
     setLogoFile(file);
-    const reader = new FileReader();
-    reader.onload = () => {
-      setLogoPreview(reader.result as string);
-    };
-    reader.readAsDataURL(file);
+    try {
+      const optimized = await compressImageToDataUrl(file, 400, 400, 'image/png');
+      setLogoPreview(optimized);
+    } catch {
+      const reader = new FileReader();
+      reader.onload = () => setLogoPreview(reader.result as string);
+      reader.readAsDataURL(file);
+    }
   };
 
   // ---------------- Favicon File Selection ----------------
-  const handleFaviconSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFaviconSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     setFaviconError(null);
     setFaviconSuccess(null);
     const file = e.target.files?.[0];
     if (!file) return;
 
-    // Check type
     const validTypes = ['image/png', 'image/x-icon', 'image/vnd.microsoft.icon', 'image/webp', 'image/svg+xml', 'image/jpeg'];
     if (!validTypes.includes(file.type) && !file.name.endsWith('.ico')) {
       setFaviconError('Lütfen geçerli bir favicon formatı seçin (PNG, ICO, WEBP veya SVG).');
       return;
     }
 
-    // Check size (max 2MB)
-    if (file.size > 2 * 1024 * 1024) {
-      setFaviconError('Favicon boyutu 2MB\'dan küçük olmalıdır.');
+    if (file.size > 4 * 1024 * 1024) {
+      setFaviconError('Favicon boyutu 4MB\'dan küçük olmalıdır.');
       return;
     }
 
     setFaviconFile(file);
-    const reader = new FileReader();
-    reader.onload = () => {
-      setFaviconPreview(reader.result as string);
-    };
-    reader.readAsDataURL(file);
+    try {
+      const optimized = await compressImageToDataUrl(file, 96, 96, 'image/png');
+      setFaviconPreview(optimized);
+    } catch {
+      const reader = new FileReader();
+      reader.onload = () => setFaviconPreview(reader.result as string);
+      reader.readAsDataURL(file);
+    }
   };
 
-  // ---------------- Upload Logo ----------------
-  const handleUploadLogo = async () => {
-    if (!logoPreview) return;
+  // ---------------- Apply Logo ----------------
+  const handleApplyLogo = async () => {
     setIsUploadingLogo(true);
     setLogoError(null);
     setLogoSuccess(null);
 
     try {
-      // 1. Upload to ImgBB via backend
-      const uploadRes = await uploadBrandingAsset({
-        image: logoPreview,
-        type: 'logo',
-        filename: logoFile?.name ? `wnelai-logo-${Date.now()}` : 'wnelai-logo'
-      });
+      let finalUrl = '';
 
-      if (!uploadRes.success || !uploadRes.url) {
-        setLogoError(uploadRes.error || 'Logo ImgBB servisine yüklenemedi. Lütfen IMGBB_API_KEY ayarını kontrol edin.');
-        return;
+      if (logoInputMode === 'url') {
+        const trimmed = customLogoUrl.trim();
+        if (!trimmed) {
+          setLogoError('Lütfen geçerli bir logo bağlantı adresi (URL) girin.');
+          setIsUploadingLogo(false);
+          return;
+        }
+        finalUrl = trimmed;
+      } else {
+        if (!logoPreview) {
+          setLogoError('Lütfen önce bir logo dosyası seçin.');
+          setIsUploadingLogo(false);
+          return;
+        }
+
+        // Try uploading to ImgBB first if available
+        const uploadRes = await uploadBrandingAsset({
+          image: logoPreview,
+          type: 'logo',
+          filename: logoFile?.name ? `wnelai-logo-${Date.now()}` : 'wnelai-logo'
+        });
+
+        if (uploadRes.success && uploadRes.url) {
+          finalUrl = uploadRes.url;
+        } else {
+          // Fallback: Directly store optimized base64 data in Firestore
+          finalUrl = logoPreview;
+        }
       }
 
-      // 2. Save new URL to Firestore
-      const saveRes = await updateLogo(uploadRes.url);
+      const saveRes = await updateLogo(finalUrl);
       if (saveRes.success) {
         setLogoSuccess('Logo başarıyla güncellendi ve tüm WnelAI arayüzlerine yansıtıldı.');
         setLogoFile(null);
         setLogoPreview(null);
+        setCustomLogoUrl('');
         if (logoInputRef.current) logoInputRef.current.value = '';
       } else {
         setLogoError(saveRes.message || 'Logo kaydedilemedi.');
@@ -155,32 +239,51 @@ export function AdminBrandingTab() {
     }
   };
 
-  // ---------------- Upload Favicon ----------------
-  const handleUploadFavicon = async () => {
-    if (!faviconPreview) return;
+  // ---------------- Apply Favicon ----------------
+  const handleApplyFavicon = async () => {
     setIsUploadingFavicon(true);
     setFaviconError(null);
     setFaviconSuccess(null);
 
     try {
-      // 1. Upload to ImgBB via backend
-      const uploadRes = await uploadBrandingAsset({
-        image: faviconPreview,
-        type: 'favicon',
-        filename: faviconFile?.name ? `wnelai-favicon-${Date.now()}` : 'wnelai-favicon'
-      });
+      let finalUrl = '';
 
-      if (!uploadRes.success || !uploadRes.url) {
-        setFaviconError(uploadRes.error || 'Favicon ImgBB servisine yüklenemedi. Lütfen IMGBB_API_KEY ayarını kontrol edin.');
-        return;
+      if (faviconInputMode === 'url') {
+        const trimmed = customFaviconUrl.trim();
+        if (!trimmed) {
+          setFaviconError('Lütfen geçerli bir favicon bağlantı adresi (URL) girin.');
+          setIsUploadingFavicon(false);
+          return;
+        }
+        finalUrl = trimmed;
+      } else {
+        if (!faviconPreview) {
+          setFaviconError('Lütfen önce bir favicon dosyası seçin.');
+          setIsUploadingFavicon(false);
+          return;
+        }
+
+        // Try uploading to ImgBB if available
+        const uploadRes = await uploadBrandingAsset({
+          image: faviconPreview,
+          type: 'favicon',
+          filename: faviconFile?.name ? `wnelai-favicon-${Date.now()}` : 'wnelai-favicon'
+        });
+
+        if (uploadRes.success && uploadRes.url) {
+          finalUrl = uploadRes.url;
+        } else {
+          // Fallback: Directly store optimized base64 data in Firestore
+          finalUrl = faviconPreview;
+        }
       }
 
-      // 2. Save new URL to Firestore
-      const saveRes = await updateFavicon(uploadRes.url);
+      const saveRes = await updateFavicon(finalUrl);
       if (saveRes.success) {
-        setFaviconSuccess('Favicon başarıyla güncellendi ve tarayıcı başlığına uygulandı.');
+        setFaviconSuccess('Favicon başarıyla güncellendi ve tarayıcı sekmesine uygulandı.');
         setFaviconFile(null);
         setFaviconPreview(null);
+        setCustomFaviconUrl('');
         if (faviconInputRef.current) faviconInputRef.current.value = '';
       } else {
         setFaviconError(saveRes.message || 'Favicon kaydedilemedi.');
@@ -202,6 +305,7 @@ export function AdminBrandingTab() {
       setLogoSuccess('Logo varsayılana sıfırlandı.');
       setLogoFile(null);
       setLogoPreview(null);
+      setCustomLogoUrl('');
     } else {
       setLogoError(res.message || 'Sıfırlama başarısız.');
     }
@@ -217,6 +321,7 @@ export function AdminBrandingTab() {
       setFaviconSuccess('Favicon varsayılana sıfırlandı.');
       setFaviconFile(null);
       setFaviconPreview(null);
+      setCustomFaviconUrl('');
     } else {
       setFaviconError(res.message || 'Sıfırlama başarısız.');
     }
@@ -226,6 +331,7 @@ export function AdminBrandingTab() {
   const cancelLogoSelection = () => {
     setLogoFile(null);
     setLogoPreview(null);
+    setCustomLogoUrl('');
     setLogoError(null);
     if (logoInputRef.current) logoInputRef.current.value = '';
   };
@@ -233,12 +339,16 @@ export function AdminBrandingTab() {
   const cancelFaviconSelection = () => {
     setFaviconFile(null);
     setFaviconPreview(null);
+    setCustomFaviconUrl('');
     setFaviconError(null);
     if (faviconInputRef.current) faviconInputRef.current.value = '';
   };
 
   const currentLogoSrc = getBustedLogoUrl();
   const currentFaviconSrc = getBustedFaviconUrl();
+
+  const isLogoReadyToSave = logoInputMode === 'file' ? !!logoPreview : !!customLogoUrl.trim();
+  const isFaviconReadyToSave = faviconInputMode === 'file' ? !!faviconPreview : !!customFaviconUrl.trim();
 
   return (
     <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-6 scrollbar-thin scrollbar-thumb-white/10">
@@ -254,7 +364,7 @@ export function AdminBrandingTab() {
               WnelAI Logo & Favicon Varlıkları
             </h3>
             <p className="text-xs text-zinc-300 leading-relaxed">
-              Buradan yüklenen tüm logo ve favicon görselleri ImgBB bulut sunucusunda barındırılır, Firestore üzerinden anlık olarak tüm kullanıcı oturumlarına ve tarayıcı sekmelerine canlı olarak senkronize edilir.
+              İster cihazınızdan görsel yükleyin, ister doğrudan harici resim bağlantısı (URL) girin. Yüklenen varlıklar Firestore ve CDN üzerinden anlık olarak tüm kullanıcılara ve tarayıcı sekmelerine yansıtılır.
             </p>
           </div>
 
@@ -330,76 +440,137 @@ export function AdminBrandingTab() {
                       <span className="text-[10px] bg-sky-500/20 text-sky-300 px-1.5 py-0.2 rounded font-semibold">3.8-Max</span>
                     </div>
                     <span className="text-[11px] text-zinc-500 max-w-xs truncate font-mono">
-                      {logoUrl}
+                      {logoUrl.startsWith('data:') ? 'Yerel Base64 Verisi (Optimize)' : logoUrl}
                     </span>
                   </div>
                 </div>
               </div>
             </div>
 
-            {/* Upload New Logo Area */}
-            <div className="space-y-2">
-              <label className="text-xs font-semibold text-zinc-300">
-                Yeni Logo Yükle <span className="text-zinc-500 font-normal">(PNG, JPG, WEBP - Maks. 6MB)</span>:
-              </label>
+            {/* Input Mode Selector (File vs URL) */}
+            <div className="flex items-center bg-black/40 p-1 rounded-xl border border-white/10 text-xs">
+              <button
+                type="button"
+                onClick={() => { setLogoInputMode('file'); setLogoError(null); }}
+                className={cn(
+                  "flex-1 py-1.5 px-3 rounded-lg font-medium transition-all flex items-center justify-center gap-1.5 cursor-pointer",
+                  logoInputMode === 'file'
+                    ? "bg-sky-500/20 text-sky-300 border border-sky-500/30"
+                    : "text-zinc-400 hover:text-white"
+                )}
+              >
+                <Upload className="w-3.5 h-3.5" />
+                <span>Dosya Yükle</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => { setLogoInputMode('url'); setLogoError(null); }}
+                className={cn(
+                  "flex-1 py-1.5 px-3 rounded-lg font-medium transition-all flex items-center justify-center gap-1.5 cursor-pointer",
+                  logoInputMode === 'url'
+                    ? "bg-sky-500/20 text-sky-300 border border-sky-500/30"
+                    : "text-zinc-400 hover:text-white"
+                )}
+              >
+                <LinkIcon className="w-3.5 h-3.5" />
+                <span>Doğrudan URL Bağlantısı</span>
+              </button>
+            </div>
 
-              <input 
-                ref={logoInputRef}
-                type="file" 
-                accept="image/png,image/jpeg,image/jpg,image/webp,image/svg+xml" 
-                onChange={handleLogoSelect}
-                className="hidden"
-                id="wnelai-logo-upload"
-              />
+            {/* Mode 1: File Upload */}
+            {logoInputMode === 'file' ? (
+              <div className="space-y-2">
+                <input 
+                  ref={logoInputRef}
+                  type="file" 
+                  accept="image/png,image/jpeg,image/jpg,image/webp,image/svg+xml" 
+                  onChange={handleLogoSelect}
+                  className="hidden"
+                  id="wnelai-logo-upload"
+                />
 
-              {!logoPreview ? (
-                <label 
-                  htmlFor="wnelai-logo-upload"
-                  className="w-full flex flex-col items-center justify-center p-5 rounded-xl border-2 border-dashed border-white/15 hover:border-sky-500/50 bg-white/[0.02] hover:bg-sky-500/[0.03] transition-all cursor-pointer group"
-                >
-                  <div className="w-10 h-10 rounded-full bg-white/5 group-hover:bg-sky-500/15 flex items-center justify-center text-zinc-400 group-hover:text-sky-400 mb-2 transition-colors">
-                    <Upload className="w-5 h-5" />
-                  </div>
-                  <span className="text-xs font-semibold text-zinc-200 group-hover:text-white">
-                    Görsel Seç veya Buraya Sürükle
-                  </span>
-                  <span className="text-[11px] text-zinc-500 mt-0.5">
-                    Şeffaf arka planlı (PNG) kare veya yatay logo önerilir
-                  </span>
-                </label>
-              ) : (
-                /* Selected File Preview Box */
-                <div className="p-3.5 rounded-xl bg-sky-950/20 border border-sky-500/30 space-y-3">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold text-sky-300 flex items-center gap-1.5">
-                      <Eye className="w-3.5 h-3.5" />
-                      <span>Yüklenen Yeni Logo Önizlemesi</span>
+                {!logoPreview ? (
+                  <label 
+                    htmlFor="wnelai-logo-upload"
+                    className="w-full flex flex-col items-center justify-center p-5 rounded-xl border-2 border-dashed border-white/15 hover:border-sky-500/50 bg-white/[0.02] hover:bg-sky-500/[0.03] transition-all cursor-pointer group"
+                  >
+                    <div className="w-10 h-10 rounded-full bg-white/5 group-hover:bg-sky-500/15 flex items-center justify-center text-zinc-400 group-hover:text-sky-400 mb-2 transition-colors">
+                      <Upload className="w-5 h-5" />
+                    </div>
+                    <span className="text-xs font-semibold text-zinc-200 group-hover:text-white">
+                      Logo Görseli Seç (Otomatik Optimize Edilir)
                     </span>
-                    <button
-                      onClick={cancelLogoSelection}
-                      className="text-[11px] text-zinc-400 hover:text-red-300 transition-colors cursor-pointer"
-                    >
-                      Seçimi Temizle
-                    </button>
-                  </div>
+                    <span className="text-[11px] text-zinc-500 mt-0.5">
+                      PNG, JPG, WEBP formatları desteklenir
+                    </span>
+                  </label>
+                ) : (
+                  <div className="p-3.5 rounded-xl bg-sky-950/20 border border-sky-500/30 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold text-sky-300 flex items-center gap-1.5">
+                        <Eye className="w-3.5 h-3.5" />
+                        <span>Yeni Logo Önizlemesi</span>
+                      </span>
+                      <button
+                        onClick={cancelLogoSelection}
+                        className="text-[11px] text-zinc-400 hover:text-red-300 transition-colors cursor-pointer"
+                      >
+                        Temizle
+                      </button>
+                    </div>
 
-                  <div className="flex items-center gap-4 bg-black/60 p-3 rounded-lg border border-white/5">
-                    <div className="w-14 h-14 rounded-xl bg-white/[0.05] border border-white/10 flex items-center justify-center p-1.5 shrink-0 overflow-hidden">
-                      <img src={logoPreview} alt="Logo Preview" className="w-full h-full object-contain" />
+                    <div className="flex items-center gap-4 bg-black/60 p-3 rounded-lg border border-white/5">
+                      <div className="w-14 h-14 rounded-xl bg-white/[0.05] border border-white/10 flex items-center justify-center p-1.5 shrink-0 overflow-hidden">
+                        <img src={logoPreview} alt="Logo Preview" className="w-full h-full object-contain" />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-xs font-semibold text-white truncate">{logoFile?.name || 'Seçilen Logo'}</p>
+                        <p className="text-[11px] text-zinc-400">
+                          {logoFile ? `${(logoFile.size / 1024).toFixed(1)} KB` : 'Hazır'}
+                        </p>
+                        <p className="text-[10px] text-emerald-400 font-medium mt-0.5">
+                          ✓ Otomatik optimize edildi &amp; kaydetmeye hazır
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            ) : (
+              /* Mode 2: Direct URL Input */
+              <div className="space-y-3">
+                <div className="space-y-1.5">
+                  <label className="text-xs text-zinc-300 font-medium">Görsel URL Adresi (PNG, JPG, SVG veya CDN):</label>
+                  <input
+                    type="url"
+                    value={customLogoUrl}
+                    onChange={(e) => {
+                      setCustomLogoUrl(e.target.value);
+                      setLogoError(null);
+                    }}
+                    placeholder="https://i.ibb.co/... veya https://.../logo.png"
+                    className="w-full bg-[#0a0a0d] border border-white/10 focus:border-sky-500/60 text-white rounded-xl px-3.5 py-2.5 text-xs outline-none transition-all placeholder:text-zinc-600 font-mono"
+                  />
+                </div>
+
+                {customLogoUrl.trim() && (
+                  <div className="p-3 rounded-xl bg-black/40 border border-white/10 flex items-center gap-3">
+                    <div className="w-12 h-12 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center p-1.5 shrink-0">
+                      <img 
+                        src={customLogoUrl.trim()} 
+                        alt="URL Logo Preview" 
+                        className="w-full h-full object-contain" 
+                        onError={() => setLogoError('Belirtilen URL üzerindeki görsel yüklenemedi. Lütfen geçerli bir doğrudan resim bağlantısı girin.')}
+                      />
                     </div>
                     <div className="min-w-0 flex-1">
-                      <p className="text-xs font-semibold text-white truncate">{logoFile?.name || 'Yeni Logo'}</p>
-                      <p className="text-[11px] text-zinc-400">
-                        {logoFile ? `${(logoFile.size / 1024).toFixed(1)} KB` : 'Hazır'}
-                      </p>
-                      <p className="text-[10px] text-emerald-400 font-medium mt-0.5">
-                        ✓ Yüklemeye hazır
-                      </p>
+                      <span className="text-xs font-semibold text-white">Canlı URL Önizlemesi</span>
+                      <p className="text-[11px] text-zinc-400 truncate font-mono">{customLogoUrl}</p>
                     </div>
                   </div>
-                </div>
-              )}
-            </div>
+                )}
+              </div>
+            )}
 
             {/* Error / Success Feedback */}
             {logoError && (
@@ -420,13 +591,13 @@ export function AdminBrandingTab() {
           {/* Action Buttons for Logo */}
           <div className="flex flex-wrap items-center justify-between gap-2 pt-3 border-t border-white/5">
             <div className="flex items-center gap-2">
-              {logoPreview && (
+              {isLogoReadyToSave && (
                 <button
                   onClick={cancelLogoSelection}
                   disabled={isUploadingLogo}
                   className="px-3 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-zinc-300 text-xs font-medium transition-colors cursor-pointer"
                 >
-                  Mevcut Logoyu Koru
+                  Vazgeç
                 </button>
               )}
 
@@ -444,11 +615,11 @@ export function AdminBrandingTab() {
             </div>
 
             <button
-              onClick={handleUploadLogo}
-              disabled={!logoPreview || isUploadingLogo}
+              onClick={handleApplyLogo}
+              disabled={!isLogoReadyToSave || isUploadingLogo}
               className={cn(
                 "px-5 py-2.5 rounded-xl text-xs font-semibold transition-all flex items-center gap-2 shadow-md cursor-pointer",
-                logoPreview && !isUploadingLogo
+                isLogoReadyToSave && !isUploadingLogo
                   ? "bg-gradient-to-r from-blue-600 to-sky-500 hover:from-blue-500 hover:to-sky-400 text-white shadow-blue-500/25 active:scale-95"
                   : "bg-white/5 text-zinc-500 cursor-not-allowed border border-white/5"
               )}
@@ -456,7 +627,7 @@ export function AdminBrandingTab() {
               {isUploadingLogo ? (
                 <>
                   <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                  <span>Logoyu Güncelliyor...</span>
+                  <span>Logoyu Kaydediyor...</span>
                 </>
               ) : (
                 <>
@@ -509,11 +680,10 @@ export function AdminBrandingTab() {
 
               {/* Simulated Browser Chrome Tab */}
               <div className="p-3 rounded-xl bg-[#09090c] border border-white/10 space-y-2">
-                {/* Browser Tab mock */}
                 <div className="flex items-center gap-2 bg-[#1a1a22] px-3.5 py-2 rounded-t-lg border-t border-x border-white/10 max-w-xs shadow-sm">
                   <div className="w-4 h-4 rounded-sm shrink-0 overflow-hidden flex items-center justify-center">
                     <img 
-                      src={faviconPreview || currentFaviconSrc} 
+                      src={faviconPreview || (customFaviconUrl.trim() || currentFaviconSrc)} 
                       alt="Favicon Tab" 
                       className="w-full h-full object-contain" 
                       onError={(e) => {
@@ -528,75 +698,138 @@ export function AdminBrandingTab() {
                 </div>
 
                 <div className="flex items-center justify-between text-[11px] text-zinc-500 px-1 pt-1 font-mono">
-                  <span className="truncate max-w-[280px]">{faviconUrl}</span>
+                  <span className="truncate max-w-[280px]">
+                    {faviconUrl.startsWith('data:') ? 'Yerel Base64 Favicon' : faviconUrl}
+                  </span>
                   <span className="text-zinc-600">32x32 / 64x64</span>
                 </div>
               </div>
             </div>
 
-            {/* Upload New Favicon Area */}
-            <div className="space-y-2">
-              <label className="text-xs font-semibold text-zinc-300">
-                Yeni Favicon Yükle <span className="text-zinc-500 font-normal">(PNG, ICO, WEBP - Maks. 2MB)</span>:
-              </label>
+            {/* Input Mode Selector (File vs URL) */}
+            <div className="flex items-center bg-black/40 p-1 rounded-xl border border-white/10 text-xs">
+              <button
+                type="button"
+                onClick={() => { setFaviconInputMode('file'); setFaviconError(null); }}
+                className={cn(
+                  "flex-1 py-1.5 px-3 rounded-lg font-medium transition-all flex items-center justify-center gap-1.5 cursor-pointer",
+                  faviconInputMode === 'file'
+                    ? "bg-amber-500/20 text-amber-300 border border-amber-500/30"
+                    : "text-zinc-400 hover:text-white"
+                )}
+              >
+                <Upload className="w-3.5 h-3.5" />
+                <span>Dosya Yükle</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => { setFaviconInputMode('url'); setFaviconError(null); }}
+                className={cn(
+                  "flex-1 py-1.5 px-3 rounded-lg font-medium transition-all flex items-center justify-center gap-1.5 cursor-pointer",
+                  faviconInputMode === 'url'
+                    ? "bg-amber-500/20 text-amber-300 border border-amber-500/30"
+                    : "text-zinc-400 hover:text-white"
+                )}
+              >
+                <LinkIcon className="w-3.5 h-3.5" />
+                <span>Doğrudan URL Bağlantısı</span>
+              </button>
+            </div>
 
-              <input 
-                ref={faviconInputRef}
-                type="file" 
-                accept="image/png,image/x-icon,image/vnd.microsoft.icon,image/webp,image/svg+xml,image/jpeg" 
-                onChange={handleFaviconSelect}
-                className="hidden"
-                id="wnelai-favicon-upload"
-              />
+            {/* Mode 1: File Upload */}
+            {faviconInputMode === 'file' ? (
+              <div className="space-y-2">
+                <input 
+                  ref={faviconInputRef}
+                  type="file" 
+                  accept="image/png,image/x-icon,image/vnd.microsoft.icon,image/webp,image/svg+xml,image/jpeg" 
+                  onChange={handleFaviconSelect}
+                  className="hidden"
+                  id="wnelai-favicon-upload"
+                />
 
-              {!faviconPreview ? (
-                <label 
-                  htmlFor="wnelai-favicon-upload"
-                  className="w-full flex flex-col items-center justify-center p-5 rounded-xl border-2 border-dashed border-white/15 hover:border-amber-500/50 bg-white/[0.02] hover:bg-amber-500/[0.03] transition-all cursor-pointer group"
-                >
-                  <div className="w-10 h-10 rounded-full bg-white/5 group-hover:bg-amber-500/15 flex items-center justify-center text-zinc-400 group-hover:text-amber-400 mb-2 transition-colors">
-                    <Upload className="w-5 h-5" />
-                  </div>
-                  <span className="text-xs font-semibold text-zinc-200 group-hover:text-white">
-                    Favicon Dosyası Seç (.ico, .png, .webp)
-                  </span>
-                  <span className="text-[11px] text-zinc-500 mt-0.5">
-                    Kare 1:1 formatında (32x32, 64x64 veya 128x128 piksel) tavsiye edilir
-                  </span>
-                </label>
-              ) : (
-                /* Selected Favicon Preview Box */
-                <div className="p-3.5 rounded-xl bg-amber-950/20 border border-amber-500/30 space-y-3">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold text-amber-300 flex items-center gap-1.5">
-                      <Eye className="w-3.5 h-3.5" />
-                      <span>Seçilen Yeni Favicon Önizlemesi</span>
+                {!faviconPreview ? (
+                  <label 
+                    htmlFor="wnelai-favicon-upload"
+                    className="w-full flex flex-col items-center justify-center p-5 rounded-xl border-2 border-dashed border-white/15 hover:border-amber-500/50 bg-white/[0.02] hover:bg-amber-500/[0.03] transition-all cursor-pointer group"
+                  >
+                    <div className="w-10 h-10 rounded-full bg-white/5 group-hover:bg-amber-500/15 flex items-center justify-center text-zinc-400 group-hover:text-amber-400 mb-2 transition-colors">
+                      <Upload className="w-5 h-5" />
+                    </div>
+                    <span className="text-xs font-semibold text-zinc-200 group-hover:text-white">
+                      Favicon Dosyası Seç (.ico, .png, .webp)
                     </span>
-                    <button
-                      onClick={cancelFaviconSelection}
-                      className="text-[11px] text-zinc-400 hover:text-red-300 transition-colors cursor-pointer"
-                    >
-                      Seçimi Temizle
-                    </button>
-                  </div>
+                    <span className="text-[11px] text-zinc-500 mt-0.5">
+                      Kare 1:1 formatında (32x32, 64x64) önerilir
+                    </span>
+                  </label>
+                ) : (
+                  <div className="p-3.5 rounded-xl bg-amber-950/20 border border-amber-500/30 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold text-amber-300 flex items-center gap-1.5">
+                        <Eye className="w-3.5 h-3.5" />
+                        <span>Yeni Favicon Önizlemesi</span>
+                      </span>
+                      <button
+                        onClick={cancelFaviconSelection}
+                        className="text-[11px] text-zinc-400 hover:text-red-300 transition-colors cursor-pointer"
+                      >
+                        Temizle
+                      </button>
+                    </div>
 
-                  <div className="flex items-center gap-4 bg-black/60 p-3 rounded-lg border border-white/5">
-                    <div className="w-10 h-10 rounded-lg bg-white/[0.05] border border-white/10 flex items-center justify-center p-1 shrink-0 overflow-hidden">
-                      <img src={faviconPreview} alt="Favicon Preview" className="w-full h-full object-contain" />
+                    <div className="flex items-center gap-4 bg-black/60 p-3 rounded-lg border border-white/5">
+                      <div className="w-10 h-10 rounded-lg bg-white/[0.05] border border-white/10 flex items-center justify-center p-1 shrink-0 overflow-hidden">
+                        <img src={faviconPreview} alt="Favicon Preview" className="w-full h-full object-contain" />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-xs font-semibold text-white truncate">{faviconFile?.name || 'Yeni Favicon'}</p>
+                        <p className="text-[11px] text-zinc-400">
+                          {faviconFile ? `${(faviconFile.size / 1024).toFixed(1)} KB` : 'Hazır'}
+                        </p>
+                        <p className="text-[10px] text-emerald-400 font-medium mt-0.5">
+                          ✓ Otomatik optimize edildi &amp; kaydetmeye hazır
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            ) : (
+              /* Mode 2: Direct URL Input */
+              <div className="space-y-3">
+                <div className="space-y-1.5">
+                  <label className="text-xs text-zinc-300 font-medium">Favicon URL Adresi (.ico, .png, .webp):</label>
+                  <input
+                    type="url"
+                    value={customFaviconUrl}
+                    onChange={(e) => {
+                      setCustomFaviconUrl(e.target.value);
+                      setFaviconError(null);
+                    }}
+                    placeholder="https://.../favicon.ico veya https://.../favicon.png"
+                    className="w-full bg-[#0a0a0d] border border-white/10 focus:border-amber-500/60 text-white rounded-xl px-3.5 py-2.5 text-xs outline-none transition-all placeholder:text-zinc-600 font-mono"
+                  />
+                </div>
+
+                {customFaviconUrl.trim() && (
+                  <div className="p-3 rounded-xl bg-black/40 border border-white/10 flex items-center gap-3">
+                    <div className="w-8 h-8 rounded-lg bg-white/5 border border-white/10 flex items-center justify-center p-1 shrink-0">
+                      <img 
+                        src={customFaviconUrl.trim()} 
+                        alt="URL Favicon Preview" 
+                        className="w-full h-full object-contain" 
+                        onError={() => setFaviconError('Belirtilen favicon bağlantısı yüklenemedi. Lütfen doğrudan geçerli bir resim linki girin.')}
+                      />
                     </div>
                     <div className="min-w-0 flex-1">
-                      <p className="text-xs font-semibold text-white truncate">{faviconFile?.name || 'Yeni Favicon'}</p>
-                      <p className="text-[11px] text-zinc-400">
-                        {faviconFile ? `${(faviconFile.size / 1024).toFixed(1)} KB` : 'Hazır'}
-                      </p>
-                      <p className="text-[10px] text-emerald-400 font-medium mt-0.5">
-                        ✓ Yüklemeye hazır
-                      </p>
+                      <span className="text-xs font-semibold text-white">Canlı Favicon Önizlemesi</span>
+                      <p className="text-[11px] text-zinc-400 truncate font-mono">{customFaviconUrl}</p>
                     </div>
                   </div>
-                </div>
-              )}
-            </div>
+                )}
+              </div>
+            )}
 
             {/* Error / Success Feedback */}
             {faviconError && (
@@ -617,13 +850,13 @@ export function AdminBrandingTab() {
           {/* Action Buttons for Favicon */}
           <div className="flex flex-wrap items-center justify-between gap-2 pt-3 border-t border-white/5">
             <div className="flex items-center gap-2">
-              {faviconPreview && (
+              {isFaviconReadyToSave && (
                 <button
                   onClick={cancelFaviconSelection}
                   disabled={isUploadingFavicon}
                   className="px-3 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-zinc-300 text-xs font-medium transition-colors cursor-pointer"
                 >
-                  Mevcut Favicon'u Koru
+                  Vazgeç
                 </button>
               )}
 
@@ -641,11 +874,11 @@ export function AdminBrandingTab() {
             </div>
 
             <button
-              onClick={handleUploadFavicon}
-              disabled={!faviconPreview || isUploadingFavicon}
+              onClick={handleApplyFavicon}
+              disabled={!isFaviconReadyToSave || isUploadingFavicon}
               className={cn(
                 "px-5 py-2.5 rounded-xl text-xs font-semibold transition-all flex items-center gap-2 shadow-md cursor-pointer",
-                faviconPreview && !isUploadingFavicon
+                isFaviconReadyToSave && !isUploadingFavicon
                   ? "bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-black font-bold shadow-amber-500/25 active:scale-95"
                   : "bg-white/5 text-zinc-500 cursor-not-allowed border border-white/5"
               )}
@@ -653,7 +886,7 @@ export function AdminBrandingTab() {
               {isUploadingFavicon ? (
                 <>
                   <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                  <span>Favicon Güncelliyor...</span>
+                  <span>Favicon Kaydediyor...</span>
                 </>
               ) : (
                 <>
@@ -667,12 +900,23 @@ export function AdminBrandingTab() {
 
       </div>
 
+      {/* Troubleshooting Guide Box for "Forbidden / ImgBB" issue */}
+      <div className="rounded-2xl bg-amber-950/20 border border-amber-500/20 p-4 space-y-2 text-xs">
+        <div className="flex items-center gap-2 text-amber-300 font-semibold">
+          <HelpCircle className="w-4 h-4 text-amber-400" />
+          <span>«You have been forbidden to use this website» veya Erişim Hatası Alıyorsanız:</span>
+        </div>
+        <p className="text-zinc-300 leading-relaxed">
+          Bu mesaj genellikle ImgBB veya Cloudflare gibi harici servislerin belirli VPN, proxy veya ISP IP adreslerini engellemesinden kaynaklanır. WnelAI artık harici servislere bağımlı değildir; <strong>«Dosya Yükle»</strong> seçeneğini kullanarak doğrudan cihazınızdan yükleyebilir veya <strong>«Doğrudan URL Bağlantısı»</strong> sekmesinden herhangi bir resim bağlantısını yapıştırıp anında kaydedebilirsiniz.
+        </p>
+      </div>
+
       {/* Security and Implementation Details Footer */}
       <div className="p-4 rounded-xl bg-white/[0.02] border border-white/5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs text-zinc-400">
         <div className="flex items-center gap-2">
           <ShieldCheck className="w-4 h-4 text-sky-400 shrink-0" />
           <span>
-            Marka varlıkları <strong>Firestore (settings/branding)</strong> ve <strong>ImgBB API</strong> aracılığıyla güvenli şekilde saklanmaktadır.
+            Marka varlıkları <strong>Firestore (settings/branding)</strong> güvencesiyle saklanır.
           </span>
         </div>
         <div className="flex items-center gap-2 text-zinc-500 text-[11px]">
