@@ -1,6 +1,6 @@
 {
   "name": "WnelAI",
-  "description": "Premium AI platform with modern UI, dark theme, voice features, and smooth animations.",
+  "description": "WnelAI resmi hizmet sonlandırma bildirimi.",
   "requestFramePermissions": ["microphone"],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

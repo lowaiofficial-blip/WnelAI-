@@ -35,6 +35,7 @@ import { ModelSelectorSheet } from './components/chat/ModelSelectorSheet';
 import { VoiceModeModal } from './components/chat/VoiceModeModal';
 import { TestAccessGate } from './components/auth/TestAccessGate';
 import { EmailVerificationGate } from './components/auth/EmailVerificationGate';
+import { ServiceShutdownScreen } from './components/common/ServiceShutdownScreen';
 import { 
   getThinkingCooldownUntil, 
   setThinkingCooldown, 
@@ -61,6 +62,13 @@ export default function App() {
   const [currentChatId, setCurrentChatId] = useState<string | null>(null);
 
   // Modals state
+  const [isAdminDirectMode, setIsAdminDirectMode] = useState<boolean>(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      return params.get('admin') === 'true' || params.get('view') === 'admin' || window.location.hash === '#admin';
+    }
+    return false;
+  });
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [profileInitialTab, setProfileInitialTab] = useState<'profile' | 'account' | 'notifications' | 'appearance'>('profile');
   const [isAdminPanelOpen, setIsAdminPanelOpen] = useState(false);
@@ -585,6 +593,31 @@ export default function App() {
       setIsLoading(false);
     }
   };
+
+  if (!isAdminDirectMode && !isAdminPanelOpen && !isAuthOpen) {
+    return (
+      <>
+        <ServiceShutdownScreen 
+          onAdminUnlock={() => {
+            if (user && isAdmin) {
+              setIsAdminPanelOpen(true);
+            } else {
+              setIsAuthOpen(true);
+            }
+          }}
+        />
+        <AdminPanelModal
+          isOpen={isAdminPanelOpen}
+          onClose={handleCloseAdmin}
+        />
+        <AuthModal
+          isOpen={isAuthOpen}
+          onClose={() => setIsAuthOpen(false)}
+          initialMode={authMode}
+        />
+      </>
+    );
+  }
 
   return (
     <div className="flex h-screen wnel-ambient-bg text-zinc-200 overflow-hidden font-sans antialiased selection:bg-sky-500/30">

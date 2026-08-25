@@ -30,12 +30,28 @@ export function BrandingProvider({ children }: { children: ReactNode }) {
   });
   const [isLoading, setIsLoading] = useState(true);
 
-  // Helper function to append cache busting param
+  // Helper function to append cache busting param cleanly without query string duplication
   const getBustedUrl = (rawUrl?: string, timestamp?: any) => {
-    if (!rawUrl) return DEFAULT_BRANDING_LOGO;
-    const v = timestamp || Date.now();
+    if (!rawUrl) return '';
     if (rawUrl.startsWith('data:')) return rawUrl;
-    return rawUrl.includes('?') ? `${rawUrl}&v=${v}` : `${rawUrl}?v=${v}`;
+    const v = timestamp || Date.now();
+    try {
+      if (rawUrl.startsWith('/') && !rawUrl.startsWith('//')) {
+        const dummyUrl = new URL(rawUrl, 'http://localhost');
+        dummyUrl.searchParams.set('v', String(v));
+        return `${dummyUrl.pathname}?${dummyUrl.searchParams.toString()}`;
+      } else if (rawUrl.startsWith('http://') || rawUrl.startsWith('https://')) {
+        const parsed = new URL(rawUrl);
+        parsed.searchParams.set('v', String(v));
+        return parsed.toString();
+      } else {
+        const clean = rawUrl.split('?')[0];
+        return `${clean}?v=${v}`;
+      }
+    } catch {
+      const clean = rawUrl.split('?')[0];
+      return `${clean}?v=${v}`;
+    }
   };
 
   useEffect(() => {
