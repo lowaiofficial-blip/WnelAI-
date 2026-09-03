@@ -26,6 +26,7 @@ export function ServerConnectionScreen({ onAdminUnlock }: ServerConnectionScreen
 
   // Connection stage: 'logo' (1.25s) -> 'connecting' (5s) -> 'error'
   const [stage, setStage] = useState<ConnectionStage>('logo');
+  const [isDialogDismissed, setIsDialogDismissed] = useState(false);
 
   // Stage transition timers
   useEffect(() => {
@@ -39,6 +40,7 @@ export function ServerConnectionScreen({ onAdminUnlock }: ServerConnectionScreen
     } else if (stage === 'connecting') {
       // Connect attempt for 5 seconds
       timer = setTimeout(() => {
+        setIsDialogDismissed(false);
         setStage('error');
       }, 5000);
     }
@@ -50,7 +52,13 @@ export function ServerConnectionScreen({ onAdminUnlock }: ServerConnectionScreen
 
   // Handle retry button click
   const handleRetry = useCallback(() => {
+    setIsDialogDismissed(false);
     setStage('connecting');
+  }, []);
+
+  // Handle cancel button click (closes dialog without resetting connection/error state)
+  const handleCancel = useCallback(() => {
+    setIsDialogDismissed(true);
   }, []);
 
   // Hidden admin shortcut listener (Alt + A or Ctrl + Shift + A)
@@ -141,7 +149,7 @@ export function ServerConnectionScreen({ onAdminUnlock }: ServerConnectionScreen
           </motion.div>
         )}
 
-        {/* Stage 2: Connecting Spinner (5 seconds) */}
+        {/* Stage 2: Connecting Spinner (5 seconds) - Matched to classic Google splash screenshot */}
         {stage === 'connecting' && (
           <motion.div
             key="connecting-stage"
@@ -150,89 +158,134 @@ export function ServerConnectionScreen({ onAdminUnlock }: ServerConnectionScreen
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             transition={{ duration: 0.3 }}
-            className="flex flex-col items-center justify-center text-center max-w-sm w-full mx-auto"
+            className="absolute inset-0 flex flex-col justify-between items-center py-12 px-6 select-none"
           >
-            {/* Minimal Circular Spinner */}
-            <div 
-              id="connecting-spinner"
-              className="w-9 h-9 sm:w-10 sm:h-10 border-[3px] border-[#e8eaed] border-t-[#5f6368] rounded-full animate-spin mb-5"
-              role="status"
-              aria-label="Yükleniyor"
-            />
+            {/* Top spacing placeholder */}
+            <div className="h-6 w-full" aria-hidden="true" />
 
-            {/* Connecting Text */}
-            <p 
-              id="connecting-text"
-              className="text-[#3c4043] text-sm sm:text-base font-normal tracking-normal"
-            >
-              Sunucuya bağlanılıyor...
-            </p>
-          </motion.div>
-        )}
-
-        {/* Stage 3: Connection Error (Appears after 5 seconds) */}
-        {stage === 'error' && (
-          <motion.div
-            key="error-stage"
-            id="error-container"
-            initial={{ opacity: 0, y: 4 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -4 }}
-            transition={{ duration: 0.35, ease: 'easeOut' }}
-            className="flex flex-col items-center justify-center text-center max-w-md w-full mx-auto px-4"
-          >
-            {/* Minimalist Native SVG Warning Icon (Triangle with Exclamation Mark) */}
+            {/* Center: WnelAI Logo */}
             <div 
-              id="error-icon-wrapper"
-              className="mb-5 flex items-center justify-center"
-              aria-hidden="true"
+              id="loading-brand-logo"
+              className="flex flex-col items-center justify-center"
             >
-              <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-full bg-[#f8f9fa] border border-[#e8eaed] flex items-center justify-center text-[#5f6368]">
-                <svg 
-                  className="w-7 h-7 sm:w-8 sm:h-8 text-[#5f6368]" 
-                  viewBox="0 0 24 24" 
-                  fill="none" 
-                  stroke="currentColor" 
-                  strokeWidth="1.8" 
-                  strokeLinecap="round" 
-                  strokeLinejoin="round"
-                  aria-hidden="true"
-                >
-                  {/* Warning Triangle */}
-                  <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
-                  {/* Exclamation point */}
-                  <line x1="12" y1="9" x2="12" y2="13" />
-                  <line x1="12" y1="17" x2="12.01" y2="17" />
-                </svg>
+              <div className="w-20 h-20 sm:w-24 sm:h-24 rounded-full flex items-center justify-center p-1">
+                {logoSrc && !logoLoadError ? (
+                  <img
+                    src={logoSrc}
+                    alt="WnelAI"
+                    onError={() => setLogoLoadError(true)}
+                    className="w-full h-full object-contain pointer-events-none drop-shadow-sm"
+                    loading="eager"
+                  />
+                ) : (
+                  <div className="w-full h-full rounded-full bg-[#EA4335] text-white flex items-center justify-center shadow-sm">
+                    <svg
+                      viewBox="0 0 100 100"
+                      fill="none"
+                      xmlns="http://www.w3.org/2000/svg"
+                      className="w-14 h-14 text-white"
+                      aria-hidden="true"
+                    >
+                      <circle cx="50" cy="18" r="7" fill="currentColor" />
+                      <circle cx="28" cy="28" r="5" fill="currentColor" />
+                      <circle cx="72" cy="28" r="5" fill="currentColor" />
+                      <circle cx="50" cy="85" r="6" fill="currentColor" />
+                      <path
+                        d="M28 28 C 38 18, 62 18, 72 28 M50 18 L50 38 M20 80 C 40 90, 60 90, 80 80"
+                        stroke="currentColor"
+                        strokeWidth="3"
+                        strokeLinecap="round"
+                      />
+                      <path
+                        d="M22 46 C 14 38, 14 62, 28 72 C 40 80, 48 55, 50 48 C 52 55, 60 80, 72 72 C 86 62, 86 38, 78 46 C 70 54, 58 70, 50 60 C 42 70, 30 54, 22 46 Z"
+                        fill="currentColor"
+                      />
+                    </svg>
+                  </div>
+                )}
               </div>
             </div>
 
-            {/* Error Title */}
-            <h1 
-              id="error-title"
-              className="text-xl sm:text-2xl md:text-[25px] font-medium text-[#202124] tracking-tight leading-snug mb-2.5"
-            >
-              Sunucuya bağlanılamıyor
-            </h1>
+            {/* Bottom: Minimalist Spinner + Go Labs */}
+            <div className="flex flex-col items-center justify-center mb-4 sm:mb-6">
+              {/* Minimal Synchronizing / Circular Spinner */}
+              <div 
+                id="connecting-spinner"
+                className="w-5 h-5 sm:w-6 sm:h-6 border-[2px] border-[#dadce0] border-t-[#5f6368] rounded-full animate-spin mb-3"
+                role="status"
+                aria-label="Yükleniyor"
+              />
 
-            {/* Error Subtitle */}
-            <p 
-              id="error-description"
-              className="text-sm sm:text-base text-[#5f6368] font-normal leading-relaxed mb-7 max-w-xs sm:max-w-sm"
-            >
-              Sunucuya bağlanırken bir sorun oluştu. Lütfen tekrar deneyin.
-            </p>
+              {/* Go Labs Bottom Brand Text */}
+              <span 
+                id="go-labs-label"
+                className="text-xl sm:text-2xl md:text-[26px] font-medium tracking-normal text-[#9aa0a6] select-none font-sans"
+              >
+                Go Labs
+              </span>
+            </div>
+          </motion.div>
+        )}
 
-            {/* Retry Button */}
-            <button
-              id="retry-button"
-              type="button"
-              onClick={handleRetry}
-              className="inline-flex items-center justify-center gap-2 px-6 py-2.5 min-h-[44px] min-w-[140px] rounded-md bg-[#1a73e8] hover:bg-[#1557b0] active:bg-[#174ea6] text-white text-sm font-medium transition-colors cursor-pointer focus:outline-none focus:ring-2 focus:ring-[#1a73e8] focus:ring-offset-2"
+        {/* Stage 3: Connection Error Dialog (Appears after 5 seconds) */}
+        {stage === 'error' && !isDialogDismissed && (
+          <motion.div
+            key="error-stage-dialog"
+            id="error-dialog-backdrop"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.2 }}
+            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/10"
+          >
+            {/* Classic System Error Dialog Card */}
+            <motion.div
+              id="system-error-dialog"
+              role="alertdialog"
+              aria-labelledby="dialog-error-title"
+              aria-describedby="dialog-error-desc"
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              transition={{ duration: 0.2, ease: 'easeOut' }}
+              className="bg-[#FFFFFF] rounded-lg shadow-md border border-[#dadce0] w-full max-w-[320px] sm:max-w-[340px] pt-5 pb-4 px-6 select-none"
             >
-              <span className="text-base font-normal leading-none" aria-hidden="true">↻</span>
-              <span>Tekrar dene</span>
-            </button>
+              {/* Dialog Title */}
+              <h2
+                id="dialog-error-title"
+                className="text-base sm:text-[17px] font-medium text-[#202124] tracking-tight mb-2 leading-snug"
+              >
+                Sunucuya bağlanılamıyor
+              </h2>
+
+              {/* Dialog Description */}
+              <p
+                id="dialog-error-desc"
+                className="text-xs sm:text-[13px] text-[#5f6368] font-normal leading-relaxed mb-6"
+              >
+                Sunucuya şu anda erişilemiyor.
+              </p>
+
+              {/* Action Buttons: İptal / Yeniden dene */}
+              <div className="flex items-center justify-end gap-2 pt-1">
+                <button
+                  id="dialog-cancel-btn"
+                  type="button"
+                  onClick={handleCancel}
+                  className="px-3.5 py-1.5 min-h-[36px] rounded text-xs sm:text-[13px] font-medium text-[#5f6368] hover:bg-[#f1f3f4] active:bg-[#e8eaed] transition-colors cursor-pointer focus:outline-none"
+                >
+                  İptal
+                </button>
+                <button
+                  id="dialog-retry-btn"
+                  type="button"
+                  onClick={handleRetry}
+                  className="px-3.5 py-1.5 min-h-[36px] rounded text-xs sm:text-[13px] font-medium text-[#1a73e8] hover:bg-[#1a73e8]/10 active:bg-[#1a73e8]/20 transition-colors cursor-pointer focus:outline-none"
+                >
+                  Yeniden dene
+                </button>
+              </div>
+            </motion.div>
           </motion.div>
         )}
       </AnimatePresence>
